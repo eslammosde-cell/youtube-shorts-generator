@@ -1,7 +1,7 @@
 streamlit
 edge-tts
 google-genai
-moviepy
+moviepy==1.0.3
 Pillow
 requests
 google-api-python-client
