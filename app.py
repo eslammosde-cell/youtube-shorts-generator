@@ -6,13 +6,15 @@ import streamlit as st
 import edge_tts
 from google import genai
 from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import (
-    AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
-)
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
+try:
+    from moviepy.editor import (
+        AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
+    )
+except ImportError:
+    from moviepy.video.io.VideoFileClip import VideoFileClip
+    from moviepy.video.VideoClip import ImageClip, ColorClip
+    from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
+    from moviepy.audio.io.AudioFileClip import AudioFileClip
 # إعدادات الصفحات
 st.set_page_config(page_title="Pro AI YouTube Shorts Studio", page_icon="🎬", layout="wide")
 
