@@ -11,15 +11,10 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-try:
-    from moviepy.editor import (
-        AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
-    )
-except ImportError:
-    from moviepy.video.io.VideoFileClip import VideoFileClip
-    from moviepy.video.Clip import ImageClip, ColorClip
-    from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
-    from moviepy.audio.io.AudioFileClip import AudioFileClip
+# MoviePy imports compatible with v1.0.3
+from moviepy.editor import (
+    AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
+)
 
 # API Keys
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
@@ -34,13 +29,9 @@ client_groq = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 client_gemini = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 def set_clip_duration(clip, duration):
-    if hasattr(clip, 'with_duration'):
-        return clip.with_duration(duration)
     return clip.set_duration(duration)
 
 def set_clip_audio(clip, audio):
-    if hasattr(clip, 'with_audio'):
-        return clip.with_audio(audio)
     return clip.set_audio(audio)
 
 def get_realtime_trending_topic():
@@ -70,7 +61,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
     text = ""
 
-    # 1. التجربة مع Groq باستخدام أسماء النماذج الرسمية المستقرة
+    # 1. محاولة استخدام Groq
     if client_groq:
         models_to_try = [
             "llama3-8b-8192",
@@ -89,7 +80,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. التراجع لـ Gemini باستخدام النموذج المستقر الصحيح gemini-1.5-flash
+    # 2. محاولة استخدام Gemini كخيار احتياطي
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
         gemini_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
