@@ -1,39 +1,50 @@
-name: Auto Daily Shorts Generator
+name: Automated Trending Content Engine
 
 on:
   schedule:
-    # يومياً الساعة 16:00 بتوقيت UTC (6 مساءً بتوقيت مصر)
+    # 4 شورتس في أوقات الذروة العالمية (08:00, 12:00, 16:00, 20:00 UTC)
+    - cron: '0 8 * * *'
+    - cron: '0 12 * * *'
     - cron: '0 16 * * *'
-  # يتيح لك التشغيل اليدوي للتجربة في أي وقت
+    - cron: '0 20 * * *'
+    # فيديوهين طوال (14:00, 22:00 UTC)
+    - cron: '0 14 * * *'
+    - cron: '0 22 * * *'
   workflow_dispatch:
+    inputs:
+      video_type:
+        description: 'Type of Video (short or long)'
+        required: true
+        default: 'short'
 
 jobs:
   build_and_upload:
-    # بيئة تشغيل نظيفة في كل مرة
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-        with:
-          # بيجبره يسحب أحدث نسخة من الكود
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          # منع الكاش تماماً لضمان تحميل المكتبات الجديدة
-          cache-dependency-path: '**/requirements.txt'
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Script
+      - name: Run Script for Shorts or Long Video
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: python app.py
+        run: |
+          # التمييز بين أنواع التشغيل
+          if [ "${{ github.event.inputs.video_type }}" == "long" ]; then
+            python app.py long
+          else
+            python app.py short
+          fi
