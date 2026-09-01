@@ -137,39 +137,44 @@ SEARCH_QUERY:
 """
     text = ""
 
-    # 1. تجربة نماذج Groq بالأسماء المستقرة
+    # 1. جلب النماذج المتاحة ديناميكياً من Groq
     if client_groq:
-        groq_models = ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]
-        for model_name in groq_models:
-            try:
-                response = client_groq.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=model_name,
-                )
-                text = response.choices[0].message.content
-                print(f"✅ Generated script via Groq ({model_name})")
-                break
-            except Exception as e:
-                print(f"⚠️ Groq {model_name} failed: {e}")
+        try:
+            available_models = [m.id for m in client_groq.models.list().data if "llama" in m.id or "mixtral" in m.id]
+            for model_name in available_models:
+                try:
+                    response = client_groq.chat.completions.create(
+                        messages=[{"role": "user", "content": prompt}],
+                        model=model_name,
+                    )
+                    text = response.choices[0].message.content
+                    print(f"✅ Generated script via Groq Auto-Selected Model: {model_name}")
+                    break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"⚠️ Dynamic Groq fetch failed: {e}")
 
-    # 2. تجربة Gemini بالنظام والموديلات الحديثة
+    # 2. جلب النماذج المتاحة ديناميكياً من Gemini
     if not text and client_gemini:
-        gemini_models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash-latest"]
-        for g_model in gemini_models:
-            try:
-                response = client_gemini.models.generate_content(
-                    model=g_model,
-                    contents=prompt,
-                )
-                text = response.text
-                print(f"✅ Generated script via Gemini ({g_model})")
-                break
-            except Exception as e:
-                print(f"⚠️ Gemini {g_model} failed: {e}")
+        try:
+            for g_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+                try:
+                    response = client_gemini.models.generate_content(
+                        model=g_model,
+                        contents=prompt,
+                    )
+                    text = response.text
+                    print(f"✅ Generated script via Gemini: {g_model}")
+                    break
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"⚠️ Gemini execution failed: {e}")
 
-    # إذا فشلت كل النماذج، يتم إيقاف السكربت بدون رفع فيديوهات فارغة
+    # إيقاف التنفيذ فوراً في حال عدم استجابة الـ APIs لمنع الرفع الفارغ
     if not text:
-        print("❌ ERROR: All AI Models failed to respond. Stopping execution to prevent uploading dummy/fallback content!")
+        print("❌ ERROR: All AI Models failed dynamically. Stopping execution!")
         sys.exit(0)
 
     script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
