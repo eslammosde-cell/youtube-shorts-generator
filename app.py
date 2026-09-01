@@ -5,6 +5,7 @@ import random
 import time
 import edge_tts
 from groq import Groq
+import google.generativeai as genai
 from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -22,13 +23,17 @@ except ImportError:
 
 # API Keys
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 PEXELS_KEY = os.getenv("PEXELS_API_KEY", "")
 CLIENT_ID = os.getenv("CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET", "")
 REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 
 VOICE = "en-US-AndrewNeural"
-client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
+client_groq = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
+
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
 
 def set_clip_duration(clip, duration):
     if hasattr(clip, 'with_duration'):
@@ -53,9 +58,6 @@ def get_realtime_trending_topic():
     return topic
 
 def generate_ai_content(topic, is_short=True):
-    if not client:
-        raise ValueError("❌ خطأ: لم يتم العثور على GROQ_API_KEY!")
-
     content_type = "YouTube Short (max 25 words script, fast-paced)" if is_short else "Full Video (detailed 60-word script)"
     
     prompt = f"""You are an elite viral content creator. Topic: '{topic}'.
@@ -68,28 +70,41 @@ TAGS: Write 8 comma-separated tags.
 SEARCH_QUERY: 1 english word for video search (e.g. galaxy, technology, nature).
 THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
-    # قائمة بجميع النماذج المحتملة في Groq
-    models_to_try = [
-        "mixtral-8x7b-32768",
-        "gemma2-9b-it",
-        "llama-3.2-11b-vision-preview",
-        "llama-3.2-3b-preview"
-    ]
     text = ""
-    for model_name in models_to_try:
+
+    # 1. محاولة استخدام Groq
+    if client_groq:
+        models_to_try = [
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it",
+            "llama-3.2-11b-vision-preview",
+            "llama-3.2-3b-preview"
+        ]
+        for model_name in models_to_try:
+            try:
+                response = client_groq.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model_name,
+                )
+                text = response.choices[0].message.content
+                print(f"✅ Generated script using Groq model: {model_name}")
+                break
+            except Exception as e:
+                print(f"⚠️ Groq model {model_name} failed: {e}")
+
+    # 2. محاولة استخدام Gemini في حال عدم نجاح Groq
+    if not text and GEMINI_KEY:
+        print("🔄 Switching to Google Gemini AI...")
         try:
-            response = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=model_name,
-            )
-            text = response.choices[0].message.content
-            print(f"✅ Generated script using Groq model: {model_name}")
-            break
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            text = response.text
+            print("✅ Generated script using Google Gemini (gemini-1.5-flash)!")
         except Exception as e:
-            print(f"⚠️ Groq model {model_name} failed: {e}")
+            print(f"⚠️ Google Gemini failed: {e}")
 
     if not text:
-        raise ValueError("❌ فشل الاتصال بنماذج Groq! تأكد من صلاحية حسابك والمفاتيح.")
+        raise ValueError("❌ فشل الاتصال بـ Groq و Gemini! تحقق من المفاتيح والصلاحيات.")
 
     try:
         script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
@@ -111,7 +126,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
         if script and title and query:
             return script, title, desc, tags, query, thumb_prompt
         else:
-            raise ValueError("❌ النص المستخرج من Groq غير مكتمل الشروط.")
+            raise ValueError("❌ النص المستخرج من AI غير مكتمل الشروط.")
     except Exception as e:
         raise ValueError(f"❌ خطأ معالجة النصوص: {e}")
 
