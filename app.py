@@ -60,13 +60,17 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
     text = ""
 
-    # 1. استخدام نماذج Groq الشغالة حالياً
+    # 1. قائمة نماذج Groq الشاملة (سيبحث السكربت عن أول نموذج يعمل منها)
     if client_groq:
-        models_to_try = [
+        groq_models = [
             "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant"
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it"
         ]
-        for model_name in models_to_try:
+        for model_name in groq_models:
             try:
                 response = client_groq.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
@@ -78,10 +82,16 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. التراجع لـ Gemini باستخدام أسماء النماذج الرسمية في google-genai
+    # 2. قائمة نماذج Gemini (بما فيها الموديل المطلوب في رسالة الخطأ الأخيرة)
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
-        gemini_models = ["gemini-2.0-flash", "gemini-2.5-flash"]
+        gemini_models = [
+            "gemini-3.6-flash",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+        ]
         for g_model in gemini_models:
             try:
                 response = client_gemini.models.generate_content(
