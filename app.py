@@ -50,20 +50,59 @@ def set_clip_audio(clip, audio):
 
 
 # ==========================================
-# 4. دالة اختيار الموضوع التريند تلقائياً
+# دالة جلب التريندات المباشرة من يوتيوب نفسه
 # ==========================================
 def get_realtime_trending_topic():
-    trending_topics = [
+    try:
+        print("🔍 Fetching live trending topics directly from YouTube...")
+        
+        # الاتصال بـ YouTube API باستخدم OAuth credentials الموجودة لديك
+        token_url = "https://oauth2.googleapis.com/token"
+        data = {
+            'client_id': CLIENT_ID,
+            'client_secret': CLIENT_SECRET,
+            'refresh_token': REFRESH_TOKEN,
+            'grant_type': 'refresh_token',
+        }
+        response = requests.post(token_url, data=data).json()
+        creds = Credentials(
+            token=response.get('access_token'),
+            refresh_token=REFRESH_TOKEN,
+            token_uri=token_url,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET
+        )
+
+        youtube = build('youtube', 'v3', credentials=creds)
+
+        # طلب الأكثر شهرة وتداولاً في العالم (أو تحديد دولة مثل US)
+        request = youtube.videos().list(
+            part="snippet",
+            chart="mostPopular",
+            regionCode="US",
+            maxResults=15
+        )
+        res = request.execute()
+
+        # استخراج عناوين الفيديوهات الأكثر تداولاً
+        trending_titles = [item['snippet']['title'] for item in res.get('items', [])]
+        
+        if trending_titles:
+            selected_topic = random.choice(trending_titles)
+            print(f"🔥 YouTube Live Trending Topic Detected: '{selected_topic}'")
+            return selected_topic
+
+    except Exception as e:
+        print(f"⚠️ Failed to fetch YouTube Trends ({e}), using Fallback topic...")
+
+    # خيار احترافي fallback في حال حدوث أي خطأ في الاتصال
+    fallback_topics = [
         "Unexplained Space Mysteries That Terrify Scientists", 
         "Mind-Blowing Artificial Intelligence Facts", 
-        "Psychological Tricks That Always Work",
-        "Ancient Ruins Scientists Still Cannot Explain",
-        "Secrets of the Deep Ocean"
+        "Psychological Secrets of Mind Control",
+        "Ancient Ruins Scientists Still Cannot Explain"
     ]
-    topic = random.choice(trending_topics)
-    print(f"🔥 Selected Trending Topic: {topic}")
-    return topic
-
+    return random.choice(fallback_topics)
 
 # ==========================================
 # 5. دالة توليد نص السكربت المضمونة
