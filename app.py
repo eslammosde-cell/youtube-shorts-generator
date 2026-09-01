@@ -6,6 +6,9 @@ import time
 import re
 import edge_tts
 
+# ==========================================
+# 1. حل توافقية مكتبة الصور MoviePy مع Pillow
+# ==========================================
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
@@ -21,7 +24,9 @@ from moviepy.editor import (
     AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
 )
 
-# API Keys
+# ==========================================
+# 2. إعداد مفاتيح API وعملاء الذكاء الاصطناعي
+# ==========================================
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 PEXELS_KEY = os.getenv("PEXELS_API_KEY", "")
@@ -33,12 +38,22 @@ VOICE = "en-US-AndrewNeural"
 client_groq = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 client_gemini = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
+
+# ==========================================
+# 3. دوال مساعدة لإنشاء الفيديو
+# ==========================================
 def set_clip_duration(clip, duration):
+    """تحديد مدة عرض المقطع"""
     return clip.set_duration(duration)
 
 def set_clip_audio(clip, audio):
+    """دمج الصوت مع مقطع الفيديو"""
     return clip.set_audio(audio)
 
+
+# ==========================================
+# 4. دالة اختيار الموضوع التريند تلقائياً
+# ==========================================
 def get_realtime_trending_topic():
     trending_topics = [
         "Unexplained Space Mysteries That Terrify Scientists", 
@@ -50,22 +65,36 @@ def get_realtime_trending_topic():
     topic = random.choice(trending_topics)
     print(f"🔥 Selected Trending Topic: {topic}")
     return topic
+# --- نهاية دالة اختيار الموضوع ---
 
+
+# ==========================================
+# 5. دالة توليد نص السكربت بواسطة الذكاء الاصطناعي
+# ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
 Write an engaging, high-retention script for a 35 to 50 seconds viral video.
 
-You MUST follow this EXACT format:
+Provide the response in this EXACT structure:
 
-SCRIPT: Write 80 to 110 words of voiceover text. High hook, strong viral facts, captivating tone.
-TITLE: Write a viral title with emojis and 2 hashtags.
-DESCRIPTION: Write 3 full sentences describing the content with a strong call to action.
-TAGS: 10 relevant keywords separated by commas.
-SEARCH_QUERY: 1 english search word for background video (e.g. galaxy, ocean, technology).
+SCRIPT:
+Write 80 to 110 words of voiceover text. High hook, strong viral facts.
+
+TITLE:
+Write a viral title with emojis and 2 hashtags.
+
+DESCRIPTION:
+Write 3 full sentences describing the content with a strong call to action.
+
+TAGS:
+10 relevant keywords separated by commas.
+
+SEARCH_QUERY:
+1 english search word for background video (e.g. ocean, space, technology).
 """
     text = ""
 
-    # 1. التجربة مع Groq
+    # تجربة Groq أولاً
     if client_groq:
         groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
         for model_name in groq_models:
@@ -80,7 +109,7 @@ SEARCH_QUERY: 1 english search word for background video (e.g. galaxy, ocean, te
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. التجربة مع Gemini
+    # إذا فشل Groq يتم التحويل إلى Gemini
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
         gemini_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
@@ -99,28 +128,32 @@ SEARCH_QUERY: 1 english search word for background video (e.g. galaxy, ocean, te
     if not text:
         raise ValueError("❌ فشل الحصول على رد من الذكاء الاصطناعي!")
 
-    script, title, desc, tags, query = "", "", "", "", ""
-    
-    for line in text.split("\n"):
-        clean_line = re.sub(r'^\*+|\*+$', '', line.strip()).strip()
-        
-        if re.match(r'^(SCRIPT|Script):', clean_line, re.IGNORECASE):
-            script = re.sub(r'^(SCRIPT|Script):', '', clean_line, flags=re.IGNORECASE).strip()
-        elif re.match(r'^(TITLE|Title):', clean_line, re.IGNORECASE):
-            title = re.sub(r'^(TITLE|Title):', '', clean_line, flags=re.IGNORECASE).strip()
-        elif re.match(r'^(DESCRIPTION|Description):', clean_line, re.IGNORECASE):
-            desc = re.sub(r'^(DESCRIPTION|Description):', '', clean_line, flags=re.IGNORECASE).strip()
-        elif re.match(r'^(TAGS|Tags):', clean_line, re.IGNORECASE):
-            tags = re.sub(r'^(TAGS|Tags):', '', clean_line, flags=re.IGNORECASE).strip()
-        elif re.match(r'^(SEARCH_QUERY|Search_Query|Query):', clean_line, re.IGNORECASE):
-            query = re.sub(r'^(SEARCH_QUERY|Search_Query|Query):', '', clean_line, flags=re.IGNORECASE).strip()
+    # استخراج النصوص بمرونة تامة تتجاهل رموز التنسيق
+    script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
+    title = re.search(r'TITLE:\s*(.*?)(?=DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
+    desc = re.search(r'DESCRIPTION:\s*(.*?)(?=TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
+    tags = re.search(r'TAGS:\s*(.*?)(?=SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
+    query = re.search(r'SEARCH_QUERY:\s*(.*)', text, re.DOTALL | re.IGNORECASE)
 
-    # التحقق المباشر من اكتمال البيانات بدون أي خطط احتياطية
-    if not script or not title or not desc or not query:
-        raise ValueError(f"❌ لم يقم الذكاء الاصطناعي بإنشاء المحتوى بالتنسيق المطلوب!\nالنص المولد كان:\n{text}")
+    script_val = re.sub(r'[*#]', '', script.group(1)).strip() if script else ""
+    title_val = re.sub(r'[*#]', '', title.group(1)).strip() if title else ""
+    desc_val = re.sub(r'[*#]', '', desc.group(1)).strip() if desc else ""
+    tags_val = re.sub(r'[*#]', '', tags.group(1)).strip() if tags else ""
+    query_val = re.sub(r'[*#]', '', query.group(1)).strip() if query else ""
 
-    return script, title, desc, tags, query
+    if query_val:
+        query_val = query_val.split()[0]
 
+    if not script_val or not title_val:
+        raise ValueError(f"❌ تعذر تفكيك النص بشكل صحيح!\nالنص الكامل المولد:\n{text}")
+
+    return script_val, title_val, desc_val, tags_val, query_val
+# --- نهاية دالة توليد السكربت ---
+
+
+# ==========================================
+# 6. دالة تحميل الفيديو الخلفي من Pexels
+# ==========================================
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
         raise ValueError("❌ لم يتم إضافة PEXELS_API_KEY في GitHub Secrets!")
@@ -147,11 +180,21 @@ def fetch_pexels_video(query, is_short=True):
             return v_path
 
     raise ValueError(f"❌ تعذر العثور على فيديو مناسب على Pexels للكلمة المفتاحية: '{query}'")
+# --- نهاية دالة تحميل الفيديو ---
 
+
+# ==========================================
+# 7. دالة تحويل النص إلى صوت (TTS)
+# ==========================================
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_file)
+# --- نهاية دالة تحويل الصوت ---
 
+
+# ==========================================
+# 8. دالة كتابة النص على الفيديو (Overlay)
+# ==========================================
 def create_text_overlay(text, width, height):
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -184,7 +227,12 @@ def create_text_overlay(text, width, height):
 
     img.save("overlay.png")
     return "overlay.png"
+# --- نهاية دالة إضافة النص ---
 
+
+# ==========================================
+# 9. دالة تجميع وإنتاج الفيديو النهائي
+# ==========================================
 def build_video(script, query, is_short=True):
     bg_video_path = fetch_pexels_video(query, is_short)
 
@@ -212,7 +260,12 @@ def build_video(script, query, is_short=True):
     out_file = "final_video.mp4"
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
+# --- نهاية دالة إنتاج الفيديو ---
 
+
+# ==========================================
+# 10. دالة رفع الفيديو مباشرة إلى يوتيوب
+# ==========================================
 def upload_to_youtube(video_path, title, desc, tags):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
@@ -250,7 +303,12 @@ def upload_to_youtube(video_path, title, desc, tags):
     res = request.execute()
     video_id = res['id']
     print(f"🎉 Video Uploaded Successfully! Video ID: {video_id}")
+# --- نهاية دالة الرفع ---
 
+
+# ==========================================
+# 11. نقطة تشغيل السكربت الرئيسية (Main Engine)
+# ==========================================
 if __name__ == "__main__":
     import sys
     is_short = True if len(sys.argv) < 2 or sys.argv[1] == "short" else False
