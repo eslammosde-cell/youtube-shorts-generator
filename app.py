@@ -72,7 +72,8 @@ def fetch_from_reddit():
 
 def fetch_from_wikipedia():
     url = "https://en.wikipedia.org/api/rest_v1/feed/featured/today"
-    res = requests.get(url, timeout=7).json()
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    res = requests.get(url, headers=headers, timeout=7).json()
     most_read = res.get('mostread', {}).get('articles', [])
     return [article['title'].replace("_", " ") for article in most_read if 'title' in article]
 
@@ -136,8 +137,10 @@ SEARCH_QUERY:
 """
     text = ""
 
+    # 1. تجربة نماذج Groq بالأسماء المستقرة
     if client_groq:
-        for model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+        groq_models = ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "llama3-8b-8192"]
+        for model_name in groq_models:
             try:
                 response = client_groq.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
@@ -149,8 +152,10 @@ SEARCH_QUERY:
             except Exception as e:
                 print(f"⚠️ Groq {model_name} failed: {e}")
 
+    # 2. تجربة Gemini بالنظام والموديلات الحديثة
     if not text and client_gemini:
-        for g_model in ["gemini-1.5-flash", "gemini-1.5-pro"]:
+        gemini_models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash-latest"]
+        for g_model in gemini_models:
             try:
                 response = client_gemini.models.generate_content(
                     model=g_model,
@@ -162,7 +167,7 @@ SEARCH_QUERY:
             except Exception as e:
                 print(f"⚠️ Gemini {g_model} failed: {e}")
 
-    # إذا فشلت الـ APIs ولم ينشأ نص -> إيقاف السكربت فوراً
+    # إذا فشلت كل النماذج، يتم إيقاف السكربت بدون رفع فيديوهات فارغة
     if not text:
         print("❌ ERROR: All AI Models failed to respond. Stopping execution to prevent uploading dummy/fallback content!")
         sys.exit(0)
