@@ -55,28 +55,8 @@ def save_to_history(topic):
         f.write(topic.strip() + "\n")
 
 # ==========================================
-# 4. جلب التريندات من مصادر متعددة (بدون احتياطي)
+# 4. جلب التريندات من مصادر متعددة (مع فحص جودة التريند)
 # ==========================================
-def fetch_from_google_trends():
-    url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US"
-    res = requests.get(url, timeout=7)
-    titles = re.findall(r'<title>(.*?)</title>', res.text)
-    return [t for t in titles if "Daily Trends" not in t]
-
-def fetch_from_reddit():
-    url = "https://www.reddit.com/r/todayilearned/hot.json?limit=25"
-    headers = {'User-agent': 'Mozilla/5.0'}
-    res = requests.get(url, headers=headers, timeout=7).json()
-    posts = res.get('data', {}).get('children', [])
-    return [p['data']['title'].replace("TIL ", "").replace("TIL that ", "") for p in posts if 'title' in p['data']]
-
-def fetch_from_wikipedia():
-    url = "https://en.wikipedia.org/api/rest_v1/feed/featured/today"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    res = requests.get(url, headers=headers, timeout=7).json()
-    most_read = res.get('mostread', {}).get('articles', [])
-    return [article['title'].replace("_", " ") for article in most_read if 'title' in article]
-
 def get_strictly_new_trending_topic():
     used_topics = load_history()
     sources = [
@@ -90,24 +70,31 @@ def get_strictly_new_trending_topic():
         try:
             print(f"🔍 Fetching trends from: {source_name}...")
             topics = source_func()
-            fresh_topics = [t for t in topics if t.lower().strip() not in used_topics]
+            
+            # استبعاد الأفكار المستخدمة والموضوعات الضعيفة (أرقام فقط أو أقل من 3 حروف)
+            fresh_topics = [
+                t for t in topics 
+                if t.lower().strip() not in used_topics 
+                and len(t.strip()) > 3 
+                and not t.strip().isdigit()
+            ]
             
             if fresh_topics:
                 selected = random.choice(fresh_topics)
                 save_to_history(selected)
-                print(f"🔥 Found NEW topic from {source_name}: '{selected}'")
+                print(f"🔥 Found NEW valid topic from {source_name}: '{selected}'")
                 return selected
             else:
-                print(f"⚠️ All topics from {source_name} were already used. Moving to next source...")
+                print(f"⚠️ All topics from {source_name} were already used or invalid. Moving to next source...")
         except Exception as e:
             print(f"⚠️ Failed fetching from {source_name}: {e}. Moving to next source...")
 
-    print("❌ ERROR: No new unique trending topic could be fetched right now. Stopping execution to prevent duplication!")
+    print("❌ ERROR: No new unique trending topic could be fetched right now. Stopping execution!")
     sys.exit(0)
 
 
 # ==========================================
-# 5. توليد النص بالذكاء الاصطناعي (معدلة)
+# 5. توليد النص بالذكاء الاصطناعي (نماذج Groq المضمونة)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
@@ -135,35 +122,32 @@ SEARCH_QUERY:
 """
     text = ""
 
-    # 1. جلب النماذج المخصصة لتوليد النصوص فقط واستبعاد Guard Models
-    if client_groq:
-        try:
-            raw_models = client_groq.models.list().data
-            valid_models = [
-                m.id for m in raw_models 
-                if ("llama-3" in m.id or "mixtral" in m.id) 
-                and "guard" not in m.id.lower() 
-                and "safetensors" not in m.id.lower()
-            ]
-            
-            for model_name in valid_models:
-                try:
-                    response = client_groq.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt}],
-                        model=model_name,
-                    )
-                    res_content = response.choices[0].message.content
-                    if res_content and "SCRIPT:" in res_content:
-                        text = res_content
-                        print(f"✅ Generated script via Groq Text Model: {model_name}")
-                        break
-                except Exception as ex:
-                    print(f"⚠️ Groq {model_name} skipped: {ex}")
-                    continue
-        except Exception as e:
-            print(f"⚠️ Dynamic Groq fetch failed: {e}")
+    # قائمة بالنماذج المستهدفة للتوليد النصي مرتبة حسب الأولوية
+    GROQ_MODELS = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "llama3-70b-8192"
+    ]
 
-    # 2. تجربة Gemini كبديل مباشر في حال عدم نجاح Groq
+    # 1. التجربة عبر Groq
+    if client_groq:
+        for model_name in GROQ_MODELS:
+            try:
+                response = client_groq.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model_name,
+                )
+                res_content = response.choices[0].message.content
+                if res_content and "SCRIPT:" in res_content:
+                    text = res_content
+                    print(f"✅ Generated script via Groq Model: {model_name}")
+                    break
+            except Exception as ex:
+                print(f"⚠️ Groq {model_name} failed: {ex}")
+                continue
+
+    # 2. التجربة عبر Gemini كبديل مباشر
     if not text and client_gemini:
         for g_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
