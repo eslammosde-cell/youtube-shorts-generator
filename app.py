@@ -3,6 +3,7 @@ import requests
 import asyncio
 import random
 import time
+import math
 import edge_tts
 from groq import Groq
 from PIL import Image, ImageDraw, ImageFont
@@ -12,11 +13,11 @@ from googleapiclient.http import MediaFileUpload
 
 try:
     from moviepy.editor import (
-        AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
+        AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip, VideoClip
     )
 except ImportError:
     from moviepy.video.io.VideoFileClip import VideoFileClip
-    from moviepy.video.VideoClip import ImageClip, ColorClip
+    from moviepy.video.VideoClip import ImageClip, ColorClip, VideoClip
     from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     from moviepy.audio.io.AudioFileClip import AudioFileClip
 
@@ -30,9 +31,6 @@ REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 VOICE = "en-US-AndrewNeural"
 client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 
-# -------------------------------------------------------------
-# دوال التوافقية مع إصدارات MoviePy المختلفة (v1 & v2)
-# -------------------------------------------------------------
 def set_clip_duration(clip, duration):
     if hasattr(clip, 'with_duration'):
         return clip.with_duration(duration)
@@ -56,30 +54,23 @@ def get_realtime_trending_topic():
     return topic
 
 def generate_ai_content(topic, is_short=True):
-    content_type = "YouTube Short (max 20 words script, high energy)" if is_short else "Full Video (detailed 50-word script)"
+    content_type = "YouTube Short (max 25 words script, fast-paced, highly engaging)" if is_short else "Full Video (detailed 60-word script)"
     
     prompt = f"""You are an elite viral content creator. Topic: '{topic}'.
 Create content for a {content_type}:
 
-1. SCRIPT: Engaging voiceover script.
-2. TITLE: High CTR viral title with 2 hashtags.
-3. DESCRIPTION: High-SEO 2-sentence description.
-4. TAGS: 8 comma-separated viral tags.
-5. SEARCH_QUERY: 1-2 english words for background video (e.g. space, city, technology).
-6. THUMBNAIL_PROMPT: A vivid prompt for thumbnail visual.
-
-Format strictly as:
-SCRIPT: <script text>
-TITLE: <title text>
-DESCRIPTION: <description text>
-TAGS: <tags>
-SEARCH_QUERY: <search query>
-THUMBNAIL_PROMPT: <thumbnail prompt>
+SCRIPT: Write an amazing viral voiceover text.
+TITLE: Write a high CTR title with 2 hashtags.
+DESCRIPTION: Write 2 descriptive sentences.
+TAGS: Write 8 comma-separated tags.
+SEARCH_QUERY: 1 english word for video search (e.g. galaxy, technology, nature).
+THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
-    # محاولة استخدام الموديلات المتاحة في Groq
     models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     text = ""
     for model_name in models_to_try:
+        if not client:
+            break
         try:
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -92,26 +83,41 @@ THUMBNAIL_PROMPT: <thumbnail prompt>
             print(f"Groq model {model_name} failed: {e}")
 
     try:
-        script = text.split("SCRIPT:")[1].split("TITLE:")[0].strip()
-        title = text.split("TITLE:")[1].split("DESCRIPTION:")[0].strip()
-        desc = text.split("DESCRIPTION:")[1].split("TAGS:")[0].strip()
-        tags = text.split("TAGS:")[1].split("SEARCH_QUERY:")[0].strip()
-        query = text.split("SEARCH_QUERY:")[1].split("THUMBNAIL_PROMPT:")[0].strip()
-        thumb_prompt = text.split("THUMBNAIL_PROMPT:")[1].strip()
-        return script, title, desc, tags, query, thumb_prompt
+        script, title, desc, tags, query, thumb_prompt = "", "", "", "", "abstract", f"{topic} futuristic visual"
+        
+        for line in text.split("\n"):
+            line_str = line.strip()
+            if line_str.startswith("SCRIPT:"):
+                script = line_str.replace("SCRIPT:", "").strip()
+            elif line_str.startswith("TITLE:"):
+                title = line_str.replace("TITLE:", "").strip()
+            elif line_str.startswith("DESCRIPTION:"):
+                desc = line_str.replace("DESCRIPTION:", "").strip()
+            elif line_str.startswith("TAGS:"):
+                tags = line_str.replace("TAGS:", "").strip()
+            elif line_str.startswith("SEARCH_QUERY:"):
+                query = line_str.replace("SEARCH_QUERY:", "").strip()
+            elif line_str.startswith("THUMBNAIL_PROMPT:"):
+                thumb_prompt = line_str.replace("THUMBNAIL_PROMPT:", "").strip()
+
+        if script and title:
+            return script, title, desc, tags, query, thumb_prompt
     except Exception as e:
-        print(f"Parsing Error, fallback used: {e}")
-        return (
-            f"Did you know about {topic}? This changes everything we knew!",
-            f"The Truth About {topic}! 🚀 #viral #shorts",
-            f"Discover the latest insights about {topic} in this quick breakdown.",
-            f"shorts, trending, {topic}",
-            "technology",
-            f"Futuristic background of {topic}, 8k resolution"
-        )
+        print(f"Parsing error: {e}")
+
+    # fallback
+    return (
+        f"Unbelievable facts about {topic}! Scientists were completely shocked by this discovery.",
+        f"The Untold Secrets of {topic}! 😱 #viral #shorts",
+        f"Explore the amazing mysteries behind {topic} in this quick viral breakdown.",
+        f"shorts, trending, viral, {topic}",
+        "space",
+        f"Abstract cosmic visualization of {topic}"
+    )
 
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
+        print("⚠️ No PEXELS_API_KEY found in secrets!")
         return None
     headers = {"Authorization": PEXELS_KEY}
     orientation = "portrait" if is_short else "landscape"
@@ -132,37 +138,26 @@ def fetch_pexels_video(query, is_short=True):
                 with open(v_path, 'wb') as f:
                     for chunk in v_res.iter_content(chunk_size=1024*1024):
                         f.write(chunk)
+                print("✅ Downloaded HD Background Video from Pexels!")
                 return v_path
     except Exception as e:
         print(f"Pexels fetch error: {e}")
     return None
 
-def generate_ai_thumbnail(prompt_text, title):
-    try:
-        clean_prompt = requests.utils.quote(prompt_text)
-        url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1280&height=720&nologo=true"
-        img_data = requests.get(url, timeout=20).content
-        
-        thumb_path = "thumbnail.jpg"
-        with open(thumb_path, 'wb') as f:
-            f.write(img_data)
-            
-        img = Image.open(thumb_path).convert("RGBA")
-        draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 55)
-        except:
-            font = ImageFont.load_default()
-            
-        draw.rectangle([0, 550, 1280, 720], fill=(0, 0, 0, 180))
-        draw.text((50, 600), title[:40] + "...", fill="#FFD700", font=font)
-        
-        final_thumb = img.convert("RGB")
-        final_thumb.save(thumb_path)
-        return thumb_path
-    except Exception as e:
-        print(f"Thumbnail generation error: {e}")
-        return None
+def make_dynamic_background(width, height, duration):
+    """توليد خلفية متحركة جذابة بحركات ألوان وتأثير حركي تلقائي"""
+    def make_frame(t):
+        import numpy as np
+        # خلط درجات الألوان ديناميكياً بناءً على الزمن t
+        r = int(127 + 127 * math.sin(t * 1.5))
+        g = int(127 + 127 * math.cos(t * 1.2))
+        b = int(180 + 75 * math.sin(t * 2.0))
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frame[:, :] = [r, g, b]
+        return frame
+
+    clip = VideoClip(make_frame, duration=duration)
+    return clip
 
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
@@ -195,7 +190,7 @@ def create_text_overlay(text, width, height):
         w_len = bbox[2] - bbox[0]
         x = (width - w_len) // 2
         y = start_y + (i * 80)
-        draw.rectangle([x - 15, y - 5, x + w_len + 15, y + 65], fill=(0, 0, 0, 170))
+        draw.rectangle([x - 15, y - 5, x + w_len + 15, y + 65], fill=(0, 0, 0, 180))
         draw.text((x, y), line, fill="#FFD700" if i % 2 == 0 else "#FFFFFF", font=font)
 
     img.save("overlay.png")
@@ -218,9 +213,9 @@ def build_video(script, query, is_short=True):
                 v_clip = v_clip.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
             base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
         except Exception as e:
-            base_video = ColorClip(size=(target_w, target_h), color=(15, 20, 30), duration=duration)
+            base_video = make_dynamic_background(target_w, target_h, duration)
     else:
-        base_video = ColorClip(size=(target_w, target_h), color=(15, 20, 30), duration=duration)
+        base_video = make_dynamic_background(target_w, target_h, duration)
 
     overlay_path = create_text_overlay(script, target_w, target_h)
     overlay_clip = ImageClip(overlay_path)
@@ -255,7 +250,7 @@ def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
     body = {
         'snippet': {
             'title': title,
-            'description': f"{desc}\n\n#trending #viral",
+            'description': f"{desc}\n\n#trending #viral #shorts",
             'tags': [t.strip() for t in tags.split(',')] if tags else [],
             'categoryId': '28'
         },
@@ -271,13 +266,6 @@ def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
     video_id = res['id']
     print(f"🎉 Video Uploaded Successfully! Video ID: {video_id}")
 
-    if thumb_path and os.path.exists(thumb_path):
-        try:
-            youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(thumb_path)).execute()
-            print("🖼️ Custom Thumbnail Uploaded Successfully!")
-        except Exception as e:
-            print(f"Thumbnail upload error: {e}")
-
 if __name__ == "__main__":
     import sys
     is_short = True if len(sys.argv) < 2 or sys.argv[1] == "short" else False
@@ -287,7 +275,5 @@ if __name__ == "__main__":
     script, title, desc, tags, query, thumb_prompt = generate_ai_content(trending_topic, is_short)
     
     video_path = build_video(script, query, is_short)
-    thumb_path = generate_ai_thumbnail(thumb_prompt, title) if not is_short else None
-    
-    upload_to_youtube(video_path, title, desc, tags, thumb_path)
+    upload_to_youtube(video_path, title, desc, tags)
     print("✅ Process Completed Successfully!")
