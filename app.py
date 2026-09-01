@@ -193,8 +193,32 @@ async def text_to_speech_async(text, output_file):
 
 
 # ==========================================
-# 8. دالة كتابة النص على الفيديو (Overlay)
+# 8. دالة كتابة النص + تصميم غلاف جذاب (Thumbnail Cover)
 # ==========================================
+def create_thumbnail_cover(title_text, width, height):
+    """إنشاء غلاف جذاب يظهر في اللقطة الأولى فقط"""
+    img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 55 if width < height else 40)
+    except:
+        font = ImageFont.load_default()
+
+    hook_text = "WAIT FOR THE END! 😱"
+    bbox = draw.textbbox((0, 0), hook_text, font=font)
+    w_len = bbox[2] - bbox[0]
+    x = (width - w_len) // 2
+    y = height // 4
+
+    # مربع أصفر فاقع وجريء لجلب الانتباه تلقائياً
+    draw.rectangle([x - 20, y - 10, x + w_len + 20, y + 70], fill=(255, 204, 0, 240))
+    draw.text((x, y + 5), hook_text, fill="#000000", font=font)
+
+    cover_path = "cover_hook.png"
+    img.save(cover_path)
+    return cover_path
+
+
 def create_text_overlay(text, width, height):
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -227,7 +251,7 @@ def create_text_overlay(text, width, height):
 
     img.save("overlay.png")
     return "overlay.png"
-# --- نهاية دالة إضافة النص ---
+# --- نهاية دالة إضافة النص والصورة ---
 
 
 # ==========================================
@@ -254,7 +278,11 @@ def build_video(script, query, is_short=True):
     overlay_clip = ImageClip(overlay_path)
     overlay_clip = set_clip_duration(overlay_clip, duration)
 
-    final_video = CompositeVideoClip([base_video, overlay_clip])
+    # إنشاء غلاف لافت يظهر في أول 0.3 ثانية لتلتقطه خوارزمية يوتيوب كـ Thumbnail
+    cover_path = create_thumbnail_cover(script, target_w, target_h)
+    cover_clip = ImageClip(cover_path).set_duration(0.3)
+
+    final_video = CompositeVideoClip([base_video, overlay_clip, cover_clip])
     final_video = set_clip_audio(final_video, audio_clip)
 
     out_file = "final_video.mp4"
