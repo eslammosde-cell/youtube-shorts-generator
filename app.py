@@ -3,7 +3,6 @@ import requests
 import asyncio
 import random
 import time
-import math
 import edge_tts
 from groq import Groq
 from PIL import Image, ImageDraw, ImageFont
@@ -13,11 +12,11 @@ from googleapiclient.http import MediaFileUpload
 
 try:
     from moviepy.editor import (
-        AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip, VideoClip
+        AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
     )
 except ImportError:
     from moviepy.video.io.VideoFileClip import VideoFileClip
-    from moviepy.video.VideoClip import ImageClip, ColorClip, VideoClip
+    from moviepy.video.VideoClip import ImageClip, ColorClip
     from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     from moviepy.audio.io.AudioFileClip import AudioFileClip
 
@@ -54,7 +53,10 @@ def get_realtime_trending_topic():
     return topic
 
 def generate_ai_content(topic, is_short=True):
-    content_type = "YouTube Short (max 25 words script, fast-paced, highly engaging)" if is_short else "Full Video (detailed 60-word script)"
+    if not client:
+        raise ValueError("❌ خطأ: لم يتم العثور على GROQ_API_KEY!")
+
+    content_type = "YouTube Short (max 25 words script, fast-paced)" if is_short else "Full Video (detailed 60-word script)"
     
     prompt = f"""You are an elite viral content creator. Topic: '{topic}'.
 Create content for a {content_type}:
@@ -69,8 +71,6 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
     models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     text = ""
     for model_name in models_to_try:
-        if not client:
-            break
         try:
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -80,11 +80,13 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             print(f"✅ Generated script using Groq model: {model_name}")
             break
         except Exception as e:
-            print(f"Groq model {model_name} failed: {e}")
+            print(f"⚠️ Groq model {model_name} failed: {e}")
+
+    if not text:
+        raise ValueError("❌ فشل الاستجابة من Groq! تم إلغاء العملية لعدم رفع فيديو فارغ.")
 
     try:
-        script, title, desc, tags, query, thumb_prompt = "", "", "", "", "abstract", f"{topic} futuristic visual"
-        
+        script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
         for line in text.split("\n"):
             line_str = line.strip()
             if line_str.startswith("SCRIPT:"):
@@ -100,25 +102,18 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             elif line_str.startswith("THUMBNAIL_PROMPT:"):
                 thumb_prompt = line_str.replace("THUMBNAIL_PROMPT:", "").strip()
 
-        if script and title:
+        # التحقق من أن النتيجة كاملة ومستوفية للشروط
+        if script and title and query:
             return script, title, desc, tags, query, thumb_prompt
+        else:
+            raise ValueError("❌ الاستجابة من Groq ناقصة الشروط المطلوب توفرها.")
     except Exception as e:
-        print(f"Parsing error: {e}")
-
-    # fallback
-    return (
-        f"Unbelievable facts about {topic}! Scientists were completely shocked by this discovery.",
-        f"The Untold Secrets of {topic}! 😱 #viral #shorts",
-        f"Explore the amazing mysteries behind {topic} in this quick viral breakdown.",
-        f"shorts, trending, viral, {topic}",
-        "space",
-        f"Abstract cosmic visualization of {topic}"
-    )
+        raise ValueError(f"❌ خطأ في معالجة نص Groq: {e}. تم إيقاف الرفع.")
 
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
-        print("⚠️ No PEXELS_API_KEY found in secrets!")
-        return None
+        raise ValueError("❌ لم يتم إضافة PEXELS_API_KEY في GitHub Secrets!")
+        
     headers = {"Authorization": PEXELS_KEY}
     orientation = "portrait" if is_short else "landscape"
     url = f"https://api.pexels.com/videos/search?query={query}&per_page=5&orientation={orientation}"
@@ -141,23 +136,9 @@ def fetch_pexels_video(query, is_short=True):
                 print("✅ Downloaded HD Background Video from Pexels!")
                 return v_path
     except Exception as e:
-        print(f"Pexels fetch error: {e}")
-    return None
-
-def make_dynamic_background(width, height, duration):
-    """توليد خلفية متحركة جذابة بحركات ألوان وتأثير حركي تلقائي"""
-    def make_frame(t):
-        import numpy as np
-        # خلط درجات الألوان ديناميكياً بناءً على الزمن t
-        r = int(127 + 127 * math.sin(t * 1.5))
-        g = int(127 + 127 * math.cos(t * 1.2))
-        b = int(180 + 75 * math.sin(t * 2.0))
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
-        frame[:, :] = [r, g, b]
-        return frame
-
-    clip = VideoClip(make_frame, duration=duration)
-    return clip
+        raise ValueError(f"❌ فشل جلب فيديو من Pexels: {e}")
+        
+    raise ValueError(f"❌ لم يتم العثور على أي فيديو يناسب الكلمة: '{query}' على Pexels!")
 
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
@@ -197,25 +178,21 @@ def create_text_overlay(text, width, height):
     return "overlay.png"
 
 def build_video(script, query, is_short=True):
+    # جلب الفيديو أولاً، إذا فشل سيتوقف البرنامج فوراً ولن يكمل
+    bg_video_path = fetch_pexels_video(query, is_short)
+
     audio_path = "voice.mp3"
     asyncio.run(text_to_speech_async(script, audio_path))
     audio_clip = AudioFileClip(audio_path)
     duration = audio_clip.duration
 
     target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
-    bg_video_path = fetch_pexels_video(query, is_short)
 
-    if bg_video_path and os.path.exists(bg_video_path):
-        try:
-            v_clip = VideoFileClip(bg_video_path).resize(height=target_h)
-            w, h = v_clip.size
-            if w > target_w:
-                v_clip = v_clip.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
-            base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
-        except Exception as e:
-            base_video = make_dynamic_background(target_w, target_h, duration)
-    else:
-        base_video = make_dynamic_background(target_w, target_h, duration)
+    v_clip = VideoFileClip(bg_video_path).resize(height=target_h)
+    w, h = v_clip.size
+    if w > target_w:
+        v_clip = v_clip.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
+    base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
 
     overlay_path = create_text_overlay(script, target_w, target_h)
     overlay_clip = ImageClip(overlay_path)
@@ -228,7 +205,7 @@ def build_video(script, query, is_short=True):
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
 
-def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
+def upload_to_youtube(video_path, title, desc, tags):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         'client_id': CLIENT_ID,
@@ -272,8 +249,10 @@ if __name__ == "__main__":
     
     print(f"🚀 Starting Automated Content Engine (Type: {'Short' if is_short else 'Long Video'})...")
     trending_topic = get_realtime_trending_topic()
-    script, title, desc, tags, query, thumb_prompt = generate_ai_content(trending_topic, is_short)
     
+    # سيتم تنفيذ كل خطوة بشرط نجاح السابقة
+    script, title, desc, tags, query, thumb_prompt = generate_ai_content(trending_topic, is_short)
     video_path = build_video(script, query, is_short)
+    
     upload_to_youtube(video_path, title, desc, tags)
     print("✅ Process Completed Successfully!")
