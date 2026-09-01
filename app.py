@@ -55,32 +55,57 @@ def save_to_history(topic):
         f.write(topic.strip() + "\n")
 
 # ==========================================
-# 4. جلب التريندات من مصادر متعددة
+# 4. جلب التريندات من مصادر عالمية متعدّدة (RSS + APIs)
 # ==========================================
-def fetch_from_google_trends():
-    url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US"
-    res = requests.get(url, timeout=7)
+def fetch_rss_titles(feed_url):
+    """دالة مساعدة لجلب عناوين الأخبار من أي رابط RSS عالمي"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    res = requests.get(feed_url, headers=headers, timeout=7)
+    # استخراج العناوين بين وسمي <title>
     titles = re.findall(r'<title>(.*?)</title>', res.text)
-    return [t for t in titles if "Daily Trends" not in t]
+    # تنظيف العناوين من أوسمة CDATA والرموز الخاصة
+    cleaned = [re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', t).strip() for t in titles]
+    return [t for t in cleaned if len(t) > 10 and "RSS" not in t and "Feed" not in t]
 
+# 1. المصادر العالمية عبر RSS
+def fetch_bbp_news():
+    return fetch_rss_titles("http://feeds.bbci.co.uk/news/world/rss.xml")
+
+def fetch_techcrunch():
+    return fetch_rss_titles("https://techcrunch.com/feed/")
+
+def fetch_national_geographic():
+    return fetch_rss_titles("https://www.nationalgeographic.com/rss/index.rss")
+
+def fetch_google_trends():
+    return fetch_rss_titles("https://trends.google.com/trends/trendingsearches/daily/rss?geo=US")
+
+# 2. المصادر عبر APIs المباشرة
 def fetch_from_reddit():
-    url = "https://www.reddit.com/r/todayilearned/hot.json?limit=25"
-    headers = {'User-agent': 'Mozilla/5.0'}
-    res = requests.get(url, headers=headers, timeout=7).json()
-    posts = res.get('data', {}).get('children', [])
-    return [p['data']['title'].replace("TIL ", "").replace("TIL that ", "") for p in posts if 'title' in p['data']]
+    url = "https://www.reddit.com/r/todayilearned/hot.json?limit=30"
+    headers = {'User-Agent': 'python:trending.shorts.bot:v2.0'}
+    res = requests.get(url, headers=headers, timeout=7)
+    if res.status_code == 200:
+        posts = res.json().get('data', {}).get('children', [])
+        return [p['data']['title'].replace("TIL ", "").replace("TIL that ", "") for p in posts if 'title' in p['data']]
+    return []
 
 def fetch_from_wikipedia():
     url = "https://en.wikipedia.org/api/rest_v1/feed/featured/today"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     res = requests.get(url, headers=headers, timeout=7).json()
     most_read = res.get('mostread', {}).get('articles', [])
     return [article['title'].replace("_", " ") for article in most_read if 'title' in article]
 
+# 3. الدالة الرئيسية لاختيار موضوع جديد كلياً
 def get_strictly_new_trending_topic():
     used_topics = load_history()
+    
+    # قائمة المصادر المتاحة
     sources = [
-        ("Google Trends", fetch_from_google_trends),
+        ("Google Trends RSS", fetch_google_trends),
+        ("BBC World News RSS", fetch_bbp_news),
+        ("TechCrunch RSS", fetch_techcrunch),
         ("Reddit TIL", fetch_from_reddit),
         ("Wikipedia Featured", fetch_from_wikipedia)
     ]
@@ -91,11 +116,11 @@ def get_strictly_new_trending_topic():
             print(f"🔍 Fetching trends from: {source_name}...")
             topics = source_func()
             
-            # فلترة العناوين الضعيفة أو غير الصالحة مثل 404
+            # فلترة الموضوعات لضمان الجودة وعدم التكرار
             fresh_topics = [
                 t for t in topics 
                 if t.lower().strip() not in used_topics 
-                and len(t.strip()) > 3 
+                and len(t.strip()) > 12
                 and not t.strip().isdigit()
             ]
             
@@ -111,7 +136,6 @@ def get_strictly_new_trending_topic():
 
     print("❌ ERROR: No new unique trending topic could be fetched right now. Stopping execution!")
     sys.exit(0)
-
 
 # ==========================================
 # 5. توليد النص بالذكاء الاصطناعي
