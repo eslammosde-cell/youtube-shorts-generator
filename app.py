@@ -5,7 +5,7 @@ import random
 import time
 import edge_tts
 from groq import Groq
-import google.generativeai as genai
+from google import genai
 from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -31,9 +31,7 @@ REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 
 VOICE = "en-US-AndrewNeural"
 client_groq = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
-
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
+client_gemini = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 def set_clip_duration(clip, duration):
     if hasattr(clip, 'with_duration'):
@@ -72,13 +70,11 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
     text = ""
 
-    # 1. محاولة استخدام Groq
+    # 1. محاولة استخدام Groq بالنماذج الشغالة حالياً
     if client_groq:
         models_to_try = [
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it",
-            "llama-3.2-11b-vision-preview",
-            "llama-3.2-3b-preview"
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
         ]
         for model_name in models_to_try:
             try:
@@ -92,19 +88,21 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. محاولة استخدام Gemini في حال عدم نجاح Groq
-    if not text and GEMINI_KEY:
-        print("🔄 Switching to Google Gemini AI...")
+    # 2. محاولة استخدام Gemini بالمكتبة الجديدة كخيار احتياطي
+    if not text and client_gemini:
+        print("🔄 Switching to Google Gemini AI (SDK v2)...")
         try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            response = model.generate_content(prompt)
+            response = client_gemini.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+            )
             text = response.text
-            print("✅ Generated script using Google Gemini (gemini-1.5-flash)!")
+            print("✅ Generated script using Google Gemini (gemini-2.5-flash)!")
         except Exception as e:
             print(f"⚠️ Google Gemini failed: {e}")
 
     if not text:
-        raise ValueError("❌ فشل الاتصال بـ Groq و Gemini! تحقق من المفاتيح والصلاحيات.")
+        raise ValueError("❌ فشل الاتصال بـ Groq و Gemini! تحقق من المفاتيح وصلاحية الحسابات.")
 
     try:
         script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
@@ -126,7 +124,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
         if script and title and query:
             return script, title, desc, tags, query, thumb_prompt
         else:
-            raise ValueError("❌ النص المستخرج من AI غير مكتمل الشروط.")
+            raise ValueError("❌ النص المستخرج من الذكاء الاصطناعي غير مكتمل الشروط.")
     except Exception as e:
         raise ValueError(f"❌ خطأ معالجة النصوص: {e}")
 
