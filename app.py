@@ -6,7 +6,6 @@ import time
 import re
 import edge_tts
 
-# حل مشكلة ANTIALIAS لـ MoviePy و Pillow الحديثة
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
@@ -42,37 +41,33 @@ def set_clip_audio(clip, audio):
 
 def get_realtime_trending_topic():
     trending_topics = [
-        "AI Breakthroughs Changing the World", 
-        "Deep Space Cosmic Mysteries", 
-        "Psychology Secrets of Successful People",
-        "Ancient Historical Discoveries",
-        "Unbelievable Technology Facts"
+        "Unexplained Space Mysteries That Terrify Scientists", 
+        "Mind-Blowing Artificial Intelligence Facts", 
+        "Psychological Tricks That Always Work",
+        "Ancient Ruins Scientists Still Cannot Explain",
+        "Secrets of the Deep Ocean"
     ]
     topic = random.choice(trending_topics)
     print(f"🔥 Selected Trending Topic: {topic}")
     return topic
 
 def generate_ai_content(topic, is_short=True):
-    content_type = "YouTube Short (max 25 words script, fast-paced)" if is_short else "Full Video (detailed 60-word script)"
-    
-    prompt = f"""You are an elite viral content creator. Topic: '{topic}'.
-Create content for a {content_type}:
+    prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
+Write an engaging, high-retention script for a 35 to 50 seconds viral video.
 
-SCRIPT: Write an amazing viral voiceover text.
-TITLE: Write a high CTR title with 2 hashtags.
-DESCRIPTION: Write 2 descriptive sentences.
-TAGS: Write 8 comma-separated tags.
-SEARCH_QUERY: 1 english word for video search (e.g. galaxy, technology, nature).
-THUMBNAIL_PROMPT: Visual prompt for thumbnail.
+You MUST follow this EXACT format:
+
+SCRIPT: Write 80 to 110 words of voiceover text. High hook, strong viral facts, captivating tone.
+TITLE: Write a viral title with emojis and 2 hashtags.
+DESCRIPTION: Write 3 full sentences describing the content with a strong call to action.
+TAGS: 10 relevant keywords separated by commas.
+SEARCH_QUERY: 1 english search word for background video (e.g. galaxy, ocean, technology).
 """
     text = ""
 
     # 1. التجربة مع Groq
     if client_groq:
-        groq_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant"
-        ]
+        groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
         for model_name in groq_models:
             try:
                 response = client_groq.chat.completions.create(
@@ -88,11 +83,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
     # 2. التجربة مع Gemini
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
-        gemini_models = [
-            "gemini-3.6-flash",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash"
-        ]
+        gemini_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
         for g_model in gemini_models:
             try:
                 response = client_gemini.models.generate_content(
@@ -106,9 +97,9 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
                 print(f"⚠️ Google Gemini model {g_model} failed: {e}")
 
     if not text:
-        raise ValueError("❌ فشل الاتصال بـ Groq و Gemini!")
+        raise ValueError("❌ فشل الحصول على رد من الذكاء الاصطناعي!")
 
-    script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
+    script, title, desc, tags, query = "", "", "", "", ""
     
     for line in text.split("\n"):
         clean_line = re.sub(r'^\*+|\*+$', '', line.strip()).strip()
@@ -123,17 +114,12 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             tags = re.sub(r'^(TAGS|Tags):', '', clean_line, flags=re.IGNORECASE).strip()
         elif re.match(r'^(SEARCH_QUERY|Search_Query|Query):', clean_line, re.IGNORECASE):
             query = re.sub(r'^(SEARCH_QUERY|Search_Query|Query):', '', clean_line, flags=re.IGNORECASE).strip()
-        elif re.match(r'^(THUMBNAIL_PROMPT|Thumbnail_Prompt):', clean_line, re.IGNORECASE):
-            thumb_prompt = re.sub(r'^(THUMBNAIL_PROMPT|Thumbnail_Prompt):', '', clean_line, flags=re.IGNORECASE).strip()
 
-    if not script:
-        script = f"Discover the unbelievable facts about {topic} today."
-    if not title:
-        title = f"Secrets of {topic} #viral #shorts"
-    if not query:
-        query = topic.split()[0]
+    # التحقق المباشر من اكتمال البيانات بدون أي خطط احتياطية
+    if not script or not title or not desc or not query:
+        raise ValueError(f"❌ لم يقم الذكاء الاصطناعي بإنشاء المحتوى بالتنسيق المطلوب!\nالنص المولد كان:\n{text}")
 
-    return script, title, desc, tags, query, thumb_prompt
+    return script, title, desc, tags, query
 
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
@@ -141,38 +127,26 @@ def fetch_pexels_video(query, is_short=True):
         
     headers = {"Authorization": PEXELS_KEY}
     orientation = "portrait" if is_short else "landscape"
-    url = f"https://api.pexels.com/videos/search?query={query}&per_page=5&orientation={orientation}"
+    url = f"https://api.pexels.com/videos/search?query={query}&per_page=10&orientation={orientation}"
     
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200:
-            videos = res.json().get("videos", [])
-            if videos:
-                selected_video = random.choice(videos)
-                video_files = selected_video.get("video_files", [])
-                hd_file = next((f for f in video_files if f.get("quality") == "hd"), video_files[0])
-                download_url = hd_file.get("link")
-                
-                v_res = requests.get(download_url, stream=True, timeout=15)
-                v_path = "bg_video.mp4"
-                with open(v_path, 'wb') as f:
-                    for chunk in v_res.iter_content(chunk_size=1024*1024):
-                        f.write(chunk)
-                print("✅ Downloaded HD Background Video from Pexels!")
-                return v_path
-    except Exception as e:
-        print(f"⚠️ Pexels error ({e}), retrying with default query...")
-        
-    url_fallback = f"https://api.pexels.com/videos/search?query=nature&per_page=5&orientation={orientation}"
-    res = requests.get(url_fallback, headers=headers, timeout=10)
-    videos = res.json().get("videos", [])
-    download_url = videos[0]["video_files"][0]["link"]
-    v_res = requests.get(download_url, stream=True, timeout=15)
-    v_path = "bg_video.mp4"
-    with open(v_path, 'wb') as f:
-        for chunk in v_res.iter_content(chunk_size=1024*1024):
-            f.write(chunk)
-    return v_path
+    res = requests.get(url, headers=headers, timeout=10)
+    if res.status_code == 200:
+        videos = res.json().get("videos", [])
+        if videos:
+            selected_video = random.choice(videos)
+            video_files = selected_video.get("video_files", [])
+            hd_file = next((f for f in video_files if f.get("quality") == "hd"), video_files[0])
+            download_url = hd_file.get("link")
+            
+            v_res = requests.get(download_url, stream=True, timeout=15)
+            v_path = "bg_video.mp4"
+            with open(v_path, 'wb') as f:
+                for chunk in v_res.iter_content(chunk_size=1024*1024):
+                    f.write(chunk)
+            print("✅ Downloaded HD Background Video from Pexels!")
+            return v_path
+
+    raise ValueError(f"❌ تعذر العثور على فيديو مناسب على Pexels للكلمة المفتاحية: '{query}'")
 
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
@@ -182,13 +156,13 @@ def create_text_overlay(text, width, height):
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 55 if width < height else 45)
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40 if width < height else 34)
     except:
         font = ImageFont.load_default()
 
     words = text.split()
     lines, current = [], ""
-    limit = 12 if width < height else 22
+    limit = 16 if width < height else 30
     for w in words:
         if len(current + " " + w) < limit:
             current += " " + w if current else w
@@ -197,15 +171,15 @@ def create_text_overlay(text, width, height):
             current = w
     if current: lines.append(current)
 
-    total_h = len(lines) * 80
+    total_h = len(lines) * 60
     start_y = (height - total_h) // 2
 
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         w_len = bbox[2] - bbox[0]
         x = (width - w_len) // 2
-        y = start_y + (i * 80)
-        draw.rectangle([x - 15, y - 5, x + w_len + 15, y + 65], fill=(0, 0, 0, 180))
+        y = start_y + (i * 60)
+        draw.rectangle([x - 12, y - 4, x + w_len + 12, y + 48], fill=(0, 0, 0, 190))
         draw.text((x, y), line, fill="#FFD700" if i % 2 == 0 else "#FFFFFF", font=font)
 
     img.save("overlay.png")
@@ -225,6 +199,7 @@ def build_video(script, query, is_short=True):
     w, h = v_clip.size
     if w > target_w:
         v_clip = v_clip.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
+    
     base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
 
     overlay_path = create_text_overlay(script, target_w, target_h)
@@ -260,7 +235,7 @@ def upload_to_youtube(video_path, title, desc, tags):
     body = {
         'snippet': {
             'title': title,
-            'description': f"{desc}\n\n#trending #viral #shorts",
+            'description': f"{desc}\n\n#trending #viral #shorts #facts #knowledge",
             'tags': [t.strip() for t in tags.split(',')] if tags else [],
             'categoryId': '28'
         },
@@ -283,7 +258,7 @@ if __name__ == "__main__":
     print(f"🚀 Starting Automated Content Engine (Type: {'Short' if is_short else 'Long Video'})...")
     trending_topic = get_realtime_trending_topic()
     
-    script, title, desc, tags, query, thumb_prompt = generate_ai_content(trending_topic, is_short)
+    script, title, desc, tags, query = generate_ai_content(trending_topic, is_short)
     video_path = build_video(script, query, is_short)
     
     upload_to_youtube(video_path, title, desc, tags)
