@@ -382,7 +382,7 @@ def create_thumbnail_cover(title_text, width, height):
 
 
 # ==========================================
-# 9. تجميع الفيديو (معدلة)
+# 9. تجميع الفيديو (مُصححة)
 # ==========================================
 def build_video(script, query, is_short=True):
     if not script:
@@ -435,12 +435,13 @@ def build_video(script, query, is_short=True):
 
     all_clips = [base_video] + overlay_clips + [sub_clip, cover_clip]
     final_video = CompositeVideoClip(all_clips)
-    final_video = set_clip_audio(final_video, audio_clip)
+    
+    # ربط الصوت بالفيديو بالطريقة البرمجية الصحيحة لـ MoviePy
+    final_video = final_video.set_audio(audio_clip)
 
     out_file = "final_video.mp4"
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
-
 
 # ==========================================
 # 10. رفع الفيديو إلى يوتيوب
