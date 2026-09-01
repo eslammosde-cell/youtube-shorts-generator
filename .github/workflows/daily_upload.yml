@@ -2,14 +2,22 @@ name: Automated Trending Content Engine
 
 on:
   schedule:
-    # 4 شورتس في أوقات الذروة العالمية (08:00, 12:00, 16:00, 20:00 UTC)
-    - cron: '0 8 * * *'
-    - cron: '0 12 * * *'
-    - cron: '0 16 * * *'
-    - cron: '0 20 * * *'
-    # فيديوهين طوال (14:00, 22:00 UTC)
-    - cron: '0 14 * * *'
-    - cron: '0 22 * * *'
+    # --- 1. ذروة آسيا والهند (04:00 - 09:00 UTC) ---
+    - cron: '12 5 * * *'   # Shorts: 10:42 AM الهند | 08:12 AM مصر
+    - cron: '37 8 * * *'   # Shorts: 02:07 PM الهند | 11:37 AM مصر
+
+    # --- 2. ذروة أوروبا (11:00 - 16:00 UTC) ---
+    - cron: '18 12 * * *'  # Shorts: 01:18 PM لندن | 03:18 PM مصر
+    - cron: '42 14 * * *'  # Shorts: 03:42 PM لندن | 05:42 PM مصر
+    - cron: '15 15 * * *'  # Long Video #1: 04:15 PM لندن | 06:15 PM مصر
+
+    # --- 3. ذروة أمريكا الشمالية (17:00 - 02:00 UTC) ---
+    - cron: '23 17 * * *'  # Shorts: 01:23 PM نيويورك | 08:23 PM مصر
+    - cron: '47 19 * * *'  # Shorts: 03:47 PM نيويورك | 10:47 PM مصر
+    - cron: '11 21 * * *'  # Shorts: 05:11 PM نيويورك | 11:11 PM مصر
+    - cron: '34 23 * * *'  # Shorts: 07:34 PM نيويورك | 01:34 AM مصر
+    - cron: '52 1 * * *'   # Long Video #2: 09:52 PM نيويورك | 03:52 AM مصر
+
   workflow_dispatch:
     inputs:
       video_type:
@@ -43,7 +51,6 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
         run: |
-          # التمييز بين أنواع التشغيل
           if [ "${{ github.event.inputs.video_type }}" == "long" ]; then
             python app.py long
           else
