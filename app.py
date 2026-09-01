@@ -30,11 +30,18 @@ REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 VOICE = "en-US-AndrewNeural"
 client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 
+# -------------------------------------------------------------
+# دوال التوافقية مع إصدارات MoviePy المختلفة (v1 & v2)
+# -------------------------------------------------------------
 def set_clip_duration(clip, duration):
-    """توافقية بين إصدارات MoviePy المختلفة"""
     if hasattr(clip, 'with_duration'):
         return clip.with_duration(duration)
     return clip.set_duration(duration)
+
+def set_clip_audio(clip, audio):
+    if hasattr(clip, 'with_audio'):
+        return clip.with_audio(audio)
+    return clip.set_audio(audio)
 
 def get_realtime_trending_topic():
     trending_topics = [
@@ -69,12 +76,22 @@ TAGS: <tags>
 SEARCH_QUERY: <search query>
 THUMBNAIL_PROMPT: <thumbnail prompt>
 """
+    # محاولة استخدام الموديلات المتاحة في Groq
+    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    text = ""
+    for model_name in models_to_try:
+        try:
+            response = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=model_name,
+            )
+            text = response.choices[0].message.content
+            print(f"✅ Generated script using Groq model: {model_name}")
+            break
+        except Exception as e:
+            print(f"Groq model {model_name} failed: {e}")
+
     try:
-        response = client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="llama3-70b-8192",  # النموذج المستقر والمدعوم
-        )
-        text = response.choices[0].message.content
         script = text.split("SCRIPT:")[1].split("TITLE:")[0].strip()
         title = text.split("TITLE:")[1].split("DESCRIPTION:")[0].strip()
         desc = text.split("DESCRIPTION:")[1].split("TAGS:")[0].strip()
@@ -83,7 +100,7 @@ THUMBNAIL_PROMPT: <thumbnail prompt>
         thumb_prompt = text.split("THUMBNAIL_PROMPT:")[1].strip()
         return script, title, desc, tags, query, thumb_prompt
     except Exception as e:
-        print(f"Groq Generation Error: {e}")
+        print(f"Parsing Error, fallback used: {e}")
         return (
             f"Did you know about {topic}? This changes everything we knew!",
             f"The Truth About {topic}! 🚀 #viral #shorts",
@@ -209,7 +226,9 @@ def build_video(script, query, is_short=True):
     overlay_clip = ImageClip(overlay_path)
     overlay_clip = set_clip_duration(overlay_clip, duration)
 
-    final_video = CompositeVideoClip([base_video, overlay_clip]).set_audio(audio_clip)
+    final_video = CompositeVideoClip([base_video, overlay_clip])
+    final_video = set_clip_audio(final_video, audio_clip)
+
     out_file = "final_video.mp4"
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
