@@ -90,7 +90,6 @@ def get_strictly_new_trending_topic():
         try:
             print(f"🔍 Fetching trends from: {source_name}...")
             topics = source_func()
-            # استبعاد الأفكار المستخدمة سابقاً
             fresh_topics = [t for t in topics if t.lower().strip() not in used_topics]
             
             if fresh_topics:
@@ -103,13 +102,12 @@ def get_strictly_new_trending_topic():
         except Exception as e:
             print(f"⚠️ Failed fetching from {source_name}: {e}. Moving to next source...")
 
-    # إذا فشلت كل المصادر ولم يجد موضوع جديد -> إيقاف السكربت فوراً لمنع التكرار
     print("❌ ERROR: No new unique trending topic could be fetched right now. Stopping execution to prevent duplication!")
     sys.exit(0)
 
 
 # ==========================================
-# 5. توليد النص بالذكاء الاصطناعي (بدون نص احتياطي)
+# 5. توليد النص بالذكاء الاصطناعي (معدلة)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
@@ -137,44 +135,51 @@ SEARCH_QUERY:
 """
     text = ""
 
-    # 1. جلب النماذج المتاحة ديناميكياً من Groq
+    # 1. جلب النماذج المخصصة لتوليد النصوص فقط واستبعاد Guard Models
     if client_groq:
         try:
-            available_models = [m.id for m in client_groq.models.list().data if "llama" in m.id or "mixtral" in m.id]
-            for model_name in available_models:
+            raw_models = client_groq.models.list().data
+            valid_models = [
+                m.id for m in raw_models 
+                if ("llama-3" in m.id or "mixtral" in m.id) 
+                and "guard" not in m.id.lower() 
+                and "safetensors" not in m.id.lower()
+            ]
+            
+            for model_name in valid_models:
                 try:
                     response = client_groq.chat.completions.create(
                         messages=[{"role": "user", "content": prompt}],
                         model=model_name,
                     )
-                    text = response.choices[0].message.content
-                    print(f"✅ Generated script via Groq Auto-Selected Model: {model_name}")
-                    break
-                except Exception:
+                    res_content = response.choices[0].message.content
+                    if res_content and "SCRIPT:" in res_content:
+                        text = res_content
+                        print(f"✅ Generated script via Groq Text Model: {model_name}")
+                        break
+                except Exception as ex:
+                    print(f"⚠️ Groq {model_name} skipped: {ex}")
                     continue
         except Exception as e:
             print(f"⚠️ Dynamic Groq fetch failed: {e}")
 
-    # 2. جلب النماذج المتاحة ديناميكياً من Gemini
+    # 2. تجربة Gemini كبديل مباشر في حال عدم نجاح Groq
     if not text and client_gemini:
-        try:
-            for g_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
-                try:
-                    response = client_gemini.models.generate_content(
-                        model=g_model,
-                        contents=prompt,
-                    )
+        for g_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+            try:
+                response = client_gemini.models.generate_content(
+                    model=g_model,
+                    contents=prompt,
+                )
+                if response.text and "SCRIPT:" in response.text:
                     text = response.text
-                    print(f"✅ Generated script via Gemini: {g_model}")
+                    print(f"✅ Generated script via Gemini Model: {g_model}")
                     break
-                except Exception:
-                    continue
-        except Exception as e:
-            print(f"⚠️ Gemini execution failed: {e}")
+            except Exception:
+                continue
 
-    # إيقاف التنفيذ فوراً في حال عدم استجابة الـ APIs لمنع الرفع الفارغ
     if not text:
-        print("❌ ERROR: All AI Models failed dynamically. Stopping execution!")
+        print("❌ ERROR: Failed to generate valid text from any AI model. Stopping execution!")
         sys.exit(0)
 
     script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
@@ -341,11 +346,20 @@ def create_thumbnail_cover(title_text, width, height):
 
 
 # ==========================================
-# 9. تجميع الفيديو
+# 9. تجميع الفيديو (معدلة)
 # ==========================================
 def build_video(script, query, is_short=True):
+    if not script:
+        print("❌ ERROR: Script text is empty. Cannot generate TTS audio!")
+        sys.exit(0)
+
     audio_path = "voice.mp3"
     asyncio.run(text_to_speech_async(script, audio_path))
+
+    if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1000:
+        print("❌ ERROR: TTS Audio generation failed or audio file is corrupted!")
+        sys.exit(0)
+
     audio_clip = AudioFileClip(audio_path)
     duration = audio_clip.duration
 
