@@ -421,7 +421,7 @@ def upload_to_youtube(video_path, title, desc, tags):
     )
 
     youtube = build('youtube', 'v3', credentials=creds)
-
+    formatted_title = f"{title} #shorts #viral" if "#shorts" not in title.lower() else title
     body = {
         'snippet': {
             'title': title,
