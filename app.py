@@ -5,9 +5,15 @@ import random
 import time
 import re
 import edge_tts
+
+# حل مشكلة ANTIALIAS لـ MoviePy و Pillow الحديثة
+import PIL.Image
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
+from PIL import Image, ImageDraw, ImageFont
 from groq import Groq
 from google import genai
-from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -65,9 +71,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
     if client_groq:
         groq_models = [
             "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "llama3-8b-8192"
+            "llama-3.1-8b-instant"
         ]
         for model_name in groq_models:
             try:
@@ -104,7 +108,6 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
     if not text:
         raise ValueError("❌ فشل الاتصال بـ Groq و Gemini!")
 
-    # تحسين استخراج النصوص ليتوافق مع أي تنسيق من الذكاء الاصطناعي
     script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
     
     for line in text.split("\n"):
@@ -123,7 +126,6 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
         elif re.match(r'^(THUMBNAIL_PROMPT|Thumbnail_Prompt):', clean_line, re.IGNORECASE):
             thumb_prompt = re.sub(r'^(THUMBNAIL_PROMPT|Thumbnail_Prompt):', '', clean_line, flags=re.IGNORECASE).strip()
 
-    # قيم افتراضية في حال عدم اكتمال بعض الحقول
     if not script:
         script = f"Discover the unbelievable facts about {topic} today."
     if not title:
@@ -161,7 +163,6 @@ def fetch_pexels_video(query, is_short=True):
     except Exception as e:
         print(f"⚠️ Pexels error ({e}), retrying with default query...")
         
-    # محاولة ثانية بكلمة بحث عامة في حال فشلت الأولى
     url_fallback = f"https://api.pexels.com/videos/search?query=nature&per_page=5&orientation={orientation}"
     res = requests.get(url_fallback, headers=headers, timeout=10)
     videos = res.json().get("videos", [])
