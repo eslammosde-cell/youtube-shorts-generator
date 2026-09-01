@@ -2,21 +2,36 @@ name: Auto Daily Shorts Generator
 
 on:
   schedule:
-    - cron: '0 16 * * *' # يعمل تلقائياً يومياً 6 مساءً بتوقيت مصر
-  workflow_dispatch: # يتيح لك التشغيل اليدوي والتجربة بضغطة زر
+    # يومياً الساعة 16:00 بتوقيت UTC (6 مساءً بتوقيت مصر)
+    - cron: '0 16 * * *'
+  # يتيح لك التشغيل اليدوي للتجربة في أي وقت
+  workflow_dispatch:
 
 jobs:
-  run-automation:
+  build_and_upload:
+    # بيئة تشغيل نظيفة في كل مرة
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          # بيجبره يسحب أحدث نسخة من الكود
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - run: |
+          # منع الكاش تماماً لضمان تحميل المكتبات الجديدة
+          cache-dependency-path: '**/requirements.txt'
+
+      - name: Install dependencies
+        run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-      - env:
+
+      - name: Run Script
+        env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
