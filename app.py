@@ -4,6 +4,7 @@ import asyncio
 import random
 import time
 import re
+import sys
 import edge_tts
 
 # ==========================================
@@ -38,151 +39,133 @@ VOICE = "en-US-AndrewNeural"
 client_groq = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 client_gemini = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
+HISTORY_FILE = "used_topics.txt"
 
 # ==========================================
-# 3. دوال مساعدة لإنشاء الفيديو
+# 3. إدارة سجل منع التكرار
 # ==========================================
-def set_clip_duration(clip, duration):
-    return clip.set_duration(duration)
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return set(line.strip().lower() for line in f if line.strip())
+    return set()
 
-def set_clip_audio(clip, audio):
-    return clip.set_audio(audio)
-
+def save_to_history(topic):
+    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(topic.strip() + "\n")
 
 # ==========================================
-# 4. دالة جلب التريندات المباشرة من يوتيوب لعدم التكرار
+# 4. جلب التريندات من مصادر متعددة (بدون احتياطي)
 # ==========================================
-def get_realtime_trending_topic():
-    try:
-        print("🔍 Fetching live trending topics directly from YouTube...")
-        token_url = "https://oauth2.googleapis.com/token"
-        data = {
-            'client_id': CLIENT_ID,
-            'client_secret': CLIENT_SECRET,
-            'refresh_token': REFRESH_TOKEN,
-            'grant_type': 'refresh_token',
-        }
-        response = requests.post(token_url, data=data).json()
-        creds = Credentials(
-            token=response.get('access_token'),
-            refresh_token=REFRESH_TOKEN,
-            token_uri=token_url,
-            client_id=CLIENT_ID,
-            client_secret=CLIENT_SECRET
-        )
+def fetch_from_google_trends():
+    url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US"
+    res = requests.get(url, timeout=7)
+    titles = re.findall(r'<title>(.*?)</title>', res.text)
+    return [t for t in titles if "Daily Trends" not in t]
 
-        youtube = build('youtube', 'v3', credentials=creds)
+def fetch_from_reddit():
+    url = "https://www.reddit.com/r/todayilearned/hot.json?limit=25"
+    headers = {'User-agent': 'Mozilla/5.0'}
+    res = requests.get(url, headers=headers, timeout=7).json()
+    posts = res.get('data', {}).get('children', [])
+    return [p['data']['title'].replace("TIL ", "").replace("TIL that ", "") for p in posts if 'title' in p['data']]
 
-        request = youtube.videos().list(
-            part="snippet",
-            chart="mostPopular",
-            regionCode="US",
-            maxResults=15
-        )
-        res = request.execute()
+def fetch_from_wikipedia():
+    url = "https://en.wikipedia.org/api/rest_v1/feed/featured/today"
+    res = requests.get(url, timeout=7).json()
+    most_read = res.get('mostread', {}).get('articles', [])
+    return [article['title'].replace("_", " ") for article in most_read if 'title' in article]
 
-        trending_titles = [item['snippet']['title'] for item in res.get('items', [])]
-        
-        if trending_titles:
-            selected_topic = random.choice(trending_titles)
-            print(f"🔥 YouTube Live Trending Topic Detected: '{selected_topic}'")
-            return selected_topic
-
-    except Exception as e:
-        print(f"⚠️ Failed to fetch YouTube Trends ({e}), using Fallback topic...")
-
-    fallback_topics = [
-        "Unexplained Space Mysteries That Terrify Scientists", 
-        "Mind-Blowing Artificial Intelligence Facts", 
-        "Psychological Secrets of Mind Control",
-        "Ancient Ruins Scientists Still Cannot Explain",
-        "Secrets of the Deep Ocean"
+def get_strictly_new_trending_topic():
+    used_topics = load_history()
+    sources = [
+        ("Google Trends", fetch_from_google_trends),
+        ("Reddit TIL", fetch_from_reddit),
+        ("Wikipedia Featured", fetch_from_wikipedia)
     ]
-    return random.choice(fallback_topics)
+    random.shuffle(sources)
+
+    for source_name, source_func in sources:
+        try:
+            print(f"🔍 Fetching trends from: {source_name}...")
+            topics = source_func()
+            # استبعاد الأفكار المستخدمة سابقاً
+            fresh_topics = [t for t in topics if t.lower().strip() not in used_topics]
+            
+            if fresh_topics:
+                selected = random.choice(fresh_topics)
+                save_to_history(selected)
+                print(f"🔥 Found NEW topic from {source_name}: '{selected}'")
+                return selected
+            else:
+                print(f"⚠️ All topics from {source_name} were already used. Moving to next source...")
+        except Exception as e:
+            print(f"⚠️ Failed fetching from {source_name}: {e}. Moving to next source...")
+
+    # إذا فشلت كل المصادر ولم يجد موضوع جديد -> إيقاف السكربت فوراً لمنع التكرار
+    print("❌ ERROR: No new unique trending topic could be fetched right now. Stopping execution to prevent duplication!")
+    sys.exit(0)
 
 
 # ==========================================
-# 5. دالة توليد نص السكربت المضمونة
+# 5. توليد النص بالذكاء الاصطناعي (بدون نص احتياطي)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
-    prompt = f"""You are a professional YouTube Shorts creator specializing in viral high-retention content. Topic: '{topic}'.
-Write a highly captivating script optimized for a 30 to 35 seconds fast-paced video.
+    prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
+Write a unique, highly captivating script (30-35 secs).
 
-CRITICAL INSTRUCTION FOR SUBSCRIBERS:
-End the script with a very strong call to action asking the viewer to subscribe right now.
+CRITICAL INSTRUCTION:
+End with a strong call to action asking the viewer to subscribe right now.
 
 Provide the response in this EXACT structure:
 
 SCRIPT:
-Write 65 to 85 words of voiceover text ONLY. Fast-paced, high retention, powerful hook.
+Write 65 to 85 words of voiceover text ONLY. Fast-paced, high retention.
 
 TITLE:
 Write a viral title with emojis.
 
 DESCRIPTION:
-Write 2-3 full sentences describing the content with a strong SUBSCRIBE call to action.
+Write 2-3 sentences describing the content with a SUBSCRIBE call to action.
 
 TAGS:
 10 relevant keywords separated by commas.
 
 SEARCH_QUERY:
-1 english search word for background video (e.g. ocean, space, technology).
+1 simple english search word for background video (e.g. ocean, space, technology, nature).
 """
     text = ""
 
     if client_groq:
-        groq_models = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant"
-        ]
-        for model_name in groq_models:
+        for model_name in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
             try:
                 response = client_groq.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
                     model=model_name,
                 )
                 text = response.choices[0].message.content
-                print(f"✅ Generated script using Groq model: {model_name}")
+                print(f"✅ Generated script via Groq ({model_name})")
                 break
             except Exception as e:
-                print(f"⚠️ Groq model {model_name} failed: {e}")
+                print(f"⚠️ Groq {model_name} failed: {e}")
 
     if not text and client_gemini:
-        print("🔄 Switching to Google Gemini AI Active Models...")
-        gemini_models = [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp"
-        ]
-        for g_model in gemini_models:
+        for g_model in ["gemini-1.5-flash", "gemini-1.5-pro"]:
             try:
                 response = client_gemini.models.generate_content(
                     model=g_model,
                     contents=prompt,
                 )
                 text = response.text
-                print(f"✅ Generated script using Google Gemini ({g_model})!")
+                print(f"✅ Generated script via Gemini ({g_model})")
                 break
             except Exception as e:
-                print(f"⚠️ Google Gemini model {g_model} failed: {e}")
+                print(f"⚠️ Gemini {g_model} failed: {e}")
 
+    # إذا فشلت الـ APIs ولم ينشأ نص -> إيقاف السكربت فوراً
     if not text:
-        print("⚠️ All AI APIs failed or quota exceeded. Using High-Quality Fallback Template...")
-        text = f"""SCRIPT:
-Did you know that space is hiding secrets that baffle top scientists? From mysterious cosmic signals to massive black holes consuming entire galaxies, the universe is full of terrifying wonders. Scientists still cannot explain what lies beyond the observable universe. Subscribe right now for more mind blowing facts!
-
-TITLE:
-Space Mysteries Scientists Cannot Explain! 😱
-
-DESCRIPTION:
-Discover terrifying mysteries of the universe that keep scientists awake at night. Make sure to subscribe for daily mind-blowing facts!
-
-TAGS:
-space, mysteries, science, universe, black hole, astronomy, facts, terrifying, mind blowing, viral
-
-SEARCH_QUERY:
-galaxy
-"""
+        print("❌ ERROR: All AI Models failed to respond. Stopping execution to prevent uploading dummy/fallback content!")
+        sys.exit(0)
 
     script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
     title = re.search(r'TITLE:\s*(.*?)(?=DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
@@ -203,11 +186,12 @@ galaxy
 
 
 # ==========================================
-# 6. دالة تحميل عدة مقاطع فيديو متنوعة للمشهد
+# 6. تحميل مقاطع الفيديو من Pexels
 # ==========================================
 def fetch_multiple_pexels_videos(query, total_duration, is_short=True):
     if not PEXELS_KEY:
-        raise ValueError("❌ لم يتم إضافة PEXELS_API_KEY في GitHub Secrets!")
+        print("❌ ERROR: PEXELS_API_KEY is missing!")
+        sys.exit(0)
         
     headers = {"Authorization": PEXELS_KEY}
     orientation = "portrait" if is_short else "landscape"
@@ -216,13 +200,17 @@ def fetch_multiple_pexels_videos(query, total_duration, is_short=True):
     res = requests.get(url, headers=headers, timeout=10)
     if res.status_code == 200:
         videos = res.json().get("videos", [])
-        if len(videos) >= 3:
-            random.shuffle(videos)
-            selected_videos = videos[:3]
-        elif videos:
-            selected_videos = videos
-        else:
-            raise ValueError(f"❌ تعذر العثور على مقاطع فيديو مناسبة لـ: '{query}'")
+        if not videos:
+            url = f"https://api.pexels.com/videos/search?query=nature&per_page=10&orientation={orientation}"
+            res = requests.get(url, headers=headers, timeout=10)
+            videos = res.json().get("videos", [])
+
+        if not videos:
+            print(f"❌ ERROR: No background videos found on Pexels for query: {query}. Stopping process!")
+            sys.exit(0)
+
+        random.shuffle(videos)
+        selected_videos = videos[:3]
 
         downloaded_paths = []
         for idx, vid in enumerate(selected_videos):
@@ -237,14 +225,15 @@ def fetch_multiple_pexels_videos(query, total_duration, is_short=True):
                     f.write(chunk)
             downloaded_paths.append(v_path)
             
-        print(f"✅ Downloaded {len(downloaded_paths)} HD Video Clips from Pexels!")
+        print(f"✅ Downloaded {len(downloaded_paths)} HD Video Clips!")
         return downloaded_paths
 
-    raise ValueError(f"❌ تعذر الاتصال بـ Pexels!")
+    print("❌ ERROR: Failed to communicate with Pexels API. Stopping!")
+    sys.exit(0)
 
 
 # ==========================================
-# 7. دالة تحويل النص إلى صوت (TTS)
+# 7. تحويل النص إلى صوت (TTS)
 # ==========================================
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
@@ -252,7 +241,7 @@ async def text_to_speech_async(text, output_file):
 
 
 # ==========================================
-# 8. دالة تصميم النص وتلوين الكلمات المفتاحيّة
+# 8. تصميم الطبقات البصرية والنصوص
 # ==========================================
 POWER_WORDS = {"TERRIFY", "SECRET", "SECRETS", "MIND", "NEVER", "ALWAYS", "DANGEROUS", "SHOCKING", "TRICK", "TRICKS", "SCIENCE", "MYSTERY", "HIDDEN", "REAL", "SUBSCRIBE"}
 
@@ -342,7 +331,7 @@ def create_thumbnail_cover(title_text, width, height):
 
 
 # ==========================================
-# 9. دالة تجميع وإنتاج الفيديو
+# 9. تجميع الفيديو
 # ==========================================
 def build_video(script, query, is_short=True):
     audio_path = "voice.mp3"
@@ -351,7 +340,6 @@ def build_video(script, query, is_short=True):
     duration = audio_clip.duration
 
     bg_paths = fetch_multiple_pexels_videos(query, duration, is_short)
-
     target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
 
     clip_dur = duration / len(bg_paths)
@@ -395,7 +383,7 @@ def build_video(script, query, is_short=True):
 
 
 # ==========================================
-# 10. دالة رفع الفيديو إلى يوتيوب (مُعدلة لإصلاح العنوان)
+# 10. رفع الفيديو إلى يوتيوب
 # ==========================================
 def upload_to_youtube(video_path, title, desc, tags):
     token_url = "https://oauth2.googleapis.com/token"
@@ -416,7 +404,6 @@ def upload_to_youtube(video_path, title, desc, tags):
 
     youtube = build('youtube', 'v3', credentials=creds)
 
-    # إضافة الهاشتاجات بشكل مضمون وصحيح
     formatted_title = f"{title} #shorts #viral" if "#shorts" not in title.lower() else title
 
     body = {
@@ -440,14 +427,14 @@ def upload_to_youtube(video_path, title, desc, tags):
 
 
 # ==========================================
-# 11. نقطة تشغيل السكربت الرئيسية
+# 11. التشغيل الرئيسي
 # ==========================================
 if __name__ == "__main__":
     import sys
     is_short = True if len(sys.argv) < 2 or sys.argv[1] == "short" else False
     
-    print(f"🚀 Starting Automated Content Engine (Type: {'Short' if is_short else 'Long Video'})...")
-    trending_topic = get_realtime_trending_topic()
+    print(f"🚀 Starting Automated Content Engine...")
+    trending_topic = get_strictly_new_trending_topic()
     
     script, title, desc, tags, query = generate_ai_content(trending_topic, is_short)
     video_path = build_video(script, query, is_short)
