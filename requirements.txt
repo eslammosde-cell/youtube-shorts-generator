@@ -1,8 +1,9 @@
-groq
 edge-tts
-moviepy==1.0.3
-Pillow
+groq
+pillow
 requests
+moviepy
 google-api-python-client
-google-auth-oauthlib
 google-auth-httplib2
+google-auth-oauthlib
+pytrends
