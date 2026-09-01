@@ -3,10 +3,9 @@ import requests
 import asyncio
 import random
 import time
-from pytrends.request import TrendReq
 import edge_tts
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -28,40 +27,39 @@ CLIENT_ID = os.getenv("CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET", "")
 REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 
-# الصوت والمحرك
 VOICE = "en-US-AndrewNeural"
 client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 
-# -------------------------------------------------------------
-# 1. جلب تريند اليوم المباشر من Google Trends
-# -------------------------------------------------------------
-def get_realtime_trending_topic():
-    try:
-        pytrend = TrendReq(hl='en-US', tz=360)
-        trending_df = pytrend.trending_searches(pn='united_states')
-        topic = trending_df.iloc[0][0]
-        print(f"🔥 Current Trending Topic: {topic}")
-        return topic
-    except Exception as e:
-        print(f"Failed to fetch trends, fallback to default: {e}")
-        fallback_topics = ["Artificial Intelligence Breakthroughs", "Space Exploration Secrets", "Mindset Shift for Success"]
-        return random.choice(fallback_topics)
+def set_clip_duration(clip, duration):
+    """توافقية بين إصدارات MoviePy المختلفة"""
+    if hasattr(clip, 'with_duration'):
+        return clip.with_duration(duration)
+    return clip.set_duration(duration)
 
-# -------------------------------------------------------------
-# 2. توليد المحتوى والسكريبت وSEO وPrompts من Groq
-# -------------------------------------------------------------
+def get_realtime_trending_topic():
+    trending_topics = [
+        "AI Breakthroughs Changing the World", 
+        "Deep Space Cosmic Mysteries", 
+        "Psychology Secrets of Successful People",
+        "Ancient Historical Discoveries",
+        "Unbelievable Technology Facts"
+    ]
+    topic = random.choice(trending_topics)
+    print(f"🔥 Selected Trending Topic: {topic}")
+    return topic
+
 def generate_ai_content(topic, is_short=True):
-    content_type = "YouTube Short (max 20 words script, high energy)" if is_short else "Full Video (detailed 60-word script)"
+    content_type = "YouTube Short (max 20 words script, high energy)" if is_short else "Full Video (detailed 50-word script)"
     
-    prompt = f"""You are an elite viral content creator. The topic is currently trending: '{topic}'.
+    prompt = f"""You are an elite viral content creator. Topic: '{topic}'.
 Create content for a {content_type}:
 
 1. SCRIPT: Engaging voiceover script.
-2. TITLE: High CTR viral title (include 2 hashtags).
-3. DESCRIPTION: High-SEO 2-sentence description with key terms.
+2. TITLE: High CTR viral title with 2 hashtags.
+3. DESCRIPTION: High-SEO 2-sentence description.
 4. TAGS: 8 comma-separated viral tags.
-5. SEARCH_QUERY: 1-2 english words to search background videos (e.g., space, technology, city).
-6. THUMBNAIL_PROMPT: A vivid descriptive prompt to generate a thumbnail visual.
+5. SEARCH_QUERY: 1-2 english words for background video (e.g. space, city, technology).
+6. THUMBNAIL_PROMPT: A vivid prompt for thumbnail visual.
 
 Format strictly as:
 SCRIPT: <script text>
@@ -74,7 +72,7 @@ THUMBNAIL_PROMPT: <thumbnail prompt>
     try:
         response = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            model="llama3-70b-8192",  # النموذج المستقر والمدعوم
         )
         text = response.choices[0].message.content
         script = text.split("SCRIPT:")[1].split("TITLE:")[0].strip()
@@ -88,16 +86,13 @@ THUMBNAIL_PROMPT: <thumbnail prompt>
         print(f"Groq Generation Error: {e}")
         return (
             f"Did you know about {topic}? This changes everything we knew!",
-            f"The Truth About {topic}! 🚀 #viral #trending",
+            f"The Truth About {topic}! 🚀 #viral #shorts",
             f"Discover the latest insights about {topic} in this quick breakdown.",
             f"shorts, trending, {topic}",
             "technology",
-            f"Cinematic futuristic background of {topic}, 8k resolution, highly detailed"
+            f"Futuristic background of {topic}, 8k resolution"
         )
 
-# -------------------------------------------------------------
-# 3. جلب فيديو خلفية من Pexels
-# -------------------------------------------------------------
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
         return None
@@ -125,11 +120,7 @@ def fetch_pexels_video(query, is_short=True):
         print(f"Pexels fetch error: {e}")
     return None
 
-# -------------------------------------------------------------
-# 4. إنشاء صورة مصغرة (AI Thumbnail Generation)
-# -------------------------------------------------------------
 def generate_ai_thumbnail(prompt_text, title):
-    print("🎨 Generating AI Thumbnail...")
     try:
         clean_prompt = requests.utils.quote(prompt_text)
         url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1280&height=720&nologo=true"
@@ -139,7 +130,6 @@ def generate_ai_thumbnail(prompt_text, title):
         with open(thumb_path, 'wb') as f:
             f.write(img_data)
             
-        # إضافة كتابة نصوص توضيحية فوق الصورة المصغرة
         img = Image.open(thumb_path).convert("RGBA")
         draw = ImageDraw.Draw(img)
         try:
@@ -147,7 +137,6 @@ def generate_ai_thumbnail(prompt_text, title):
         except:
             font = ImageFont.load_default()
             
-        # إضافة شريط داكن وقائي للنص
         draw.rectangle([0, 550, 1280, 720], fill=(0, 0, 0, 180))
         draw.text((50, 600), title[:40] + "...", fill="#FFD700", font=font)
         
@@ -158,9 +147,6 @@ def generate_ai_thumbnail(prompt_text, title):
         print(f"Thumbnail generation error: {e}")
         return None
 
-# -------------------------------------------------------------
-# 5. الصوت والنصوص والنظام الصوتي
-# -------------------------------------------------------------
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_file)
@@ -198,9 +184,6 @@ def create_text_overlay(text, width, height):
     img.save("overlay.png")
     return "overlay.png"
 
-# -------------------------------------------------------------
-# 6. بناء الفيديو المكتمل
-# -------------------------------------------------------------
 def build_video(script, query, is_short=True):
     audio_path = "voice.mp3"
     asyncio.run(text_to_speech_async(script, audio_path))
@@ -223,16 +206,14 @@ def build_video(script, query, is_short=True):
         base_video = ColorClip(size=(target_w, target_h), color=(15, 20, 30), duration=duration)
 
     overlay_path = create_text_overlay(script, target_w, target_h)
-    overlay_clip = ImageClip(overlay_path).set_duration(duration)
+    overlay_clip = ImageClip(overlay_path)
+    overlay_clip = set_clip_duration(overlay_clip, duration)
 
     final_video = CompositeVideoClip([base_video, overlay_clip]).set_audio(audio_clip)
     out_file = "final_video.mp4"
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
 
-# -------------------------------------------------------------
-# 7. الرفع على يوتيوب مع الصورة المصغرة SEO
-# -------------------------------------------------------------
 def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
@@ -257,7 +238,7 @@ def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
             'title': title,
             'description': f"{desc}\n\n#trending #viral",
             'tags': [t.strip() for t in tags.split(',')] if tags else [],
-            'categoryId': '28' # Science & Technology
+            'categoryId': '28'
         },
         'status': {
             'privacyStatus': 'public',
@@ -271,7 +252,6 @@ def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
     video_id = res['id']
     print(f"🎉 Video Uploaded Successfully! Video ID: {video_id}")
 
-    # رفع الصورة المصغرة إن وجدت
     if thumb_path and os.path.exists(thumb_path):
         try:
             youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(thumb_path)).execute()
@@ -281,7 +261,6 @@ def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
 
 if __name__ == "__main__":
     import sys
-    # تفعيل خيار رفع شورتس أو فيديو عادي بناء على التوجيه
     is_short = True if len(sys.argv) < 2 or sys.argv[1] == "short" else False
     
     print(f"🚀 Starting Automated Content Engine (Type: {'Short' if is_short else 'Long Video'})...")
