@@ -55,8 +55,28 @@ def save_to_history(topic):
         f.write(topic.strip() + "\n")
 
 # ==========================================
-# 4. جلب التريندات من مصادر متعددة (مع فحص جودة التريند)
+# 4. جلب التريندات من مصادر متعددة
 # ==========================================
+def fetch_from_google_trends():
+    url = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US"
+    res = requests.get(url, timeout=7)
+    titles = re.findall(r'<title>(.*?)</title>', res.text)
+    return [t for t in titles if "Daily Trends" not in t]
+
+def fetch_from_reddit():
+    url = "https://www.reddit.com/r/todayilearned/hot.json?limit=25"
+    headers = {'User-agent': 'Mozilla/5.0'}
+    res = requests.get(url, headers=headers, timeout=7).json()
+    posts = res.get('data', {}).get('children', [])
+    return [p['data']['title'].replace("TIL ", "").replace("TIL that ", "") for p in posts if 'title' in p['data']]
+
+def fetch_from_wikipedia():
+    url = "https://en.wikipedia.org/api/rest_v1/feed/featured/today"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    res = requests.get(url, headers=headers, timeout=7).json()
+    most_read = res.get('mostread', {}).get('articles', [])
+    return [article['title'].replace("_", " ") for article in most_read if 'title' in article]
+
 def get_strictly_new_trending_topic():
     used_topics = load_history()
     sources = [
@@ -71,7 +91,7 @@ def get_strictly_new_trending_topic():
             print(f"🔍 Fetching trends from: {source_name}...")
             topics = source_func()
             
-            # استبعاد الأفكار المستخدمة والموضوعات الضعيفة (أرقام فقط أو أقل من 3 حروف)
+            # فلترة العناوين الضعيفة أو غير الصالحة مثل 404
             fresh_topics = [
                 t for t in topics 
                 if t.lower().strip() not in used_topics 
@@ -94,7 +114,7 @@ def get_strictly_new_trending_topic():
 
 
 # ==========================================
-# 5. توليد النص بالذكاء الاصطناعي (نماذج Groq المضمونة)
+# 5. توليد النص بالذكاء الاصطناعي
 # ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
@@ -122,7 +142,6 @@ SEARCH_QUERY:
 """
     text = ""
 
-    # قائمة بالنماذج المستهدفة للتوليد النصي مرتبة حسب الأولوية
     GROQ_MODELS = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
@@ -130,7 +149,6 @@ SEARCH_QUERY:
         "llama3-70b-8192"
     ]
 
-    # 1. التجربة عبر Groq
     if client_groq:
         for model_name in GROQ_MODELS:
             try:
@@ -147,7 +165,6 @@ SEARCH_QUERY:
                 print(f"⚠️ Groq {model_name} failed: {ex}")
                 continue
 
-    # 2. التجربة عبر Gemini كبديل مباشر
     if not text and client_gemini:
         for g_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
