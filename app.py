@@ -138,35 +138,30 @@ def get_strictly_new_trending_topic():
     sys.exit(0)
 
 # ==========================================
-# 5. توليد النص بالذكاء الاصطناعي (نماذج حديثة + حماية كاملة)
+# 5. توليد النص بالذكاء الاصطناعي (مع استخراج دقيق بنسبة 100%)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
-Write a unique, highly captivating script (30-35 secs).
+Write a unique, highly captivating script (30-35 secs) in English.
 
 CRITICAL INSTRUCTION:
-End with a strong call to action asking the viewer to subscribe right now.
+End the script with a strong call to action asking the viewer to subscribe right now.
 
-Provide the response in this EXACT structure:
+Respond ONLY in the exact template below. Do NOT add any extra conversational text or Markdown symbols:
 
-SCRIPT:
-Write 65 to 85 words of voiceover text ONLY. Fast-paced, high retention.
-
-TITLE:
-Write a viral title with emojis.
-
-DESCRIPTION:
-Write 2-3 sentences describing the content with a SUBSCRIBE call to action.
-
-TAGS:
-10 relevant keywords separated by commas.
-
-SEARCH_QUERY:
-1 simple english search word for background video (e.g. ocean, space, technology, nature).
+===SCRIPT===
+[Write 65 to 85 words of voiceover text ONLY. Fast-paced, high retention.]
+===TITLE===
+[Write a catchy viral title with emojis]
+===DESCRIPTION===
+[Write 2 sentences describing the video with a SUBSCRIBE call to action]
+===TAGS===
+[Write 10 relevant keywords separated by commas]
+===QUERY===
+[Write 1 simple English search word for background video e.g. nature, space, health, technology]
 """
     text = ""
 
-    # 1. قائمة نماذج Groq المحدثة والنشطة حالياً
     GROQ_MODELS = [
         "llama-3.1-8b-instant",
         "llama3-8b-8192",
@@ -174,10 +169,8 @@ SEARCH_QUERY:
     ]
 
     if client_groq:
-        # جلب النماذج المتاحة ديناميكياً من حسابك أولاً
         try:
             available_models = [m.id for m in client_groq.models.list().data if "guard" not in m.id.lower()]
-            # دمج النماذج المتاحة ديناميكياً مع القائمة الاحتياطية
             GROQ_MODELS = available_models + [m for m in GROQ_MODELS if m not in available_models]
         except Exception as e:
             print(f"⚠️ Dynamic model fetch failed, using default list: {e}")
@@ -187,9 +180,10 @@ SEARCH_QUERY:
                 response = client_groq.chat.completions.create(
                     messages=[{"role": "user", "content": prompt}],
                     model=model_name,
+                    temperature=0.7,
                 )
                 res_content = response.choices[0].message.content
-                if res_content and "SCRIPT:" in res_content:
+                if res_content and "===SCRIPT===" in res_content:
                     text = res_content
                     print(f"✅ Generated script via Groq Model: {model_name}")
                     break
@@ -197,7 +191,6 @@ SEARCH_QUERY:
                 print(f"⚠️ Groq {model_name} failed: {ex}")
                 continue
 
-    # 2. الانتقال التلقائي لـ Gemini في حال تعذر Groq
     if not text and client_gemini:
         print("🔄 Switching to Gemini models fallback...")
         GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
@@ -207,7 +200,7 @@ SEARCH_QUERY:
                     model=g_model,
                     contents=prompt,
                 )
-                if response.text and "SCRIPT:" in response.text:
+                if response.text and "===SCRIPT===" in response.text:
                     text = response.text
                     print(f"✅ Generated script via Gemini Model: {g_model}")
                     break
@@ -219,20 +212,37 @@ SEARCH_QUERY:
         print("❌ ERROR: Failed to generate valid text from any AI model. Stopping execution!")
         sys.exit(0)
 
-    script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
-    title = re.search(r'TITLE:\s*(.*?)(?=DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
-    desc = re.search(r'DESCRIPTION:\s*(.*?)(?=TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
-    tags = re.search(r'TAGS:\s*(.*?)(?=SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
-    query = re.search(r'SEARCH_QUERY:\s*(.*)', text, re.DOTALL | re.IGNORECASE)
+    # استخراج البيانات بواسطة الفواصل الصريحة ===
+    script_val, title_val, desc_val, tags_val, query_val = "", "", "", "", ""
+    
+    try:
+        parts = text.split("===")
+        for i in range(1, len(parts), 2):
+            key = parts[i].strip().upper()
+            val = parts[i+1].strip() if i+1 < len(parts) else ""
+            
+            if key == "SCRIPT":
+                script_val = val
+            elif key == "TITLE":
+                title_val = val
+            elif key == "DESCRIPTION":
+                desc_val = val
+            elif key == "TAGS":
+                tags_val = val
+            elif key == "QUERY":
+                query_val = val.split()[0] if val else "nature"
+    except Exception as e:
+        print(f"⚠️ Parsing failed, applying fallback cleanups: {e}")
 
-    script_val = re.sub(r'[*#]', '', script.group(1)).strip() if script else ""
-    title_val = re.sub(r'[*#]', '', title.group(1)).strip() if title else ""
-    desc_val = re.sub(r'[*#]', '', desc.group(1)).strip() if desc else ""
-    tags_val = re.sub(r'[*#]', '', tags.group(1)).strip() if tags else ""
-    query_val = re.sub(r'[*#]', '', query.group(1)).strip() if query else ""
+    # تنظيف قيم الاستخراج من الأقواس المربعة أو علامات التنصيص إذا وجدت
+    script_val = re.sub(r'[\[\]*#]', '', script_val).strip()
+    title_val = re.sub(r'[\[\]*#]', '', title_val).strip()
+    desc_val = re.sub(r'[\[\]*#]', '', desc_val).strip()
+    tags_val = re.sub(r'[\[\]*#]', '', tags_val).strip()
+    query_val = re.sub(r'[\[\]*#]', '', query_val).strip()
 
-    if query_val:
-        query_val = query_val.split()[0]
+    print(f"📝 Parsed Script Length: {len(script_val.split())} words")
+    print(f"📌 Parsed Title: {title_val}")
 
     return script_val, title_val, desc_val, tags_val, query_val
 
