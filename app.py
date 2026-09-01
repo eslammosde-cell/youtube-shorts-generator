@@ -17,7 +17,7 @@ try:
     )
 except ImportError:
     from moviepy.video.io.VideoFileClip import VideoFileClip
-    from moviepy.video.VideoClip import ImageClip, ColorClip
+    from moviepy.video.Clip import ImageClip, ColorClip
     from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     from moviepy.audio.io.AudioFileClip import AudioFileClip
 
@@ -70,11 +70,12 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
     text = ""
 
-    # 1. محاولة استخدام Groq بالنماذج الشغالة حالياً
+    # 1. التجربة مع Groq باستخدام أسماء النماذج الرسمية المستقرة
     if client_groq:
         models_to_try = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant"
+            "llama3-8b-8192",
+            "llama3-70b-8192",
+            "mixtral-8x7b-32768"
         ]
         for model_name in models_to_try:
             try:
@@ -88,18 +89,21 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. محاولة استخدام Gemini بالمكتبة الجديدة كخيار احتياطي
+    # 2. التراجع لـ Gemini باستخدام النموذج المستقر الصحيح gemini-1.5-flash
     if not text and client_gemini:
-        print("🔄 Switching to Google Gemini AI (SDK v2)...")
-        try:
-            response = client_gemini.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-            )
-            text = response.text
-            print("✅ Generated script using Google Gemini (gemini-2.5-flash)!")
-        except Exception as e:
-            print(f"⚠️ Google Gemini failed: {e}")
+        print("🔄 Switching to Google Gemini AI...")
+        gemini_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+        for g_model in gemini_models:
+            try:
+                response = client_gemini.models.generate_content(
+                    model=g_model,
+                    contents=prompt,
+                )
+                text = response.text
+                print(f"✅ Generated script using Google Gemini ({g_model})!")
+                break
+            except Exception as e:
+                print(f"⚠️ Google Gemini model {g_model} failed: {e}")
 
     if not text:
         raise ValueError("❌ فشل الاتصال بـ Groq و Gemini! تحقق من المفاتيح وصلاحية الحسابات.")
