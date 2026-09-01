@@ -1,6 +1,5 @@
-streamlit
+groq
 edge-tts
-google-genai
 moviepy==1.0.3
 Pillow
 requests
