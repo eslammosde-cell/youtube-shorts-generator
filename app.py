@@ -66,14 +66,14 @@ def get_realtime_trending_topic():
 
 
 # ==========================================
-# 5. دالة توليد نص السكربت (مثالي لمدّة 30-35 ثانية + CTA)
+# 5. دالة توليد نص السكربت (مع دعم شامل لكل الموديلات الاحتياطية)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator specializing in viral high-retention content. Topic: '{topic}'.
 Write a highly captivating script optimized for a 30 to 35 seconds fast-paced video.
 
 CRITICAL INSTRUCTION FOR SUBSCRIBERS:
-End the script with a very strong 4-word call to action asking the viewer to subscribe right now.
+End the script with a very strong call to action asking the viewer to subscribe right now.
 
 Provide the response in this EXACT structure:
 
@@ -94,8 +94,17 @@ SEARCH_QUERY:
 """
     text = ""
 
+    # 1. قائمة الموديلات المتاحة في Groq
     if client_groq:
-        groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        groq_models = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it"
+        ]
         for model_name in groq_models:
             try:
                 response = client_groq.chat.completions.create(
@@ -108,9 +117,16 @@ SEARCH_QUERY:
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
+    # 2. قائمة الموديلات المتاحة في Google Gemini كخطة احتياطية فائقة
     if not text and client_gemini:
-        print("🔄 Switching to Google Gemini AI...")
-        gemini_models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+        print("🔄 Switching to Google Gemini AI Fallback List...")
+        gemini_models = [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-1.0-pro"
+        ]
         for g_model in gemini_models:
             try:
                 response = client_gemini.models.generate_content(
@@ -124,7 +140,7 @@ SEARCH_QUERY:
                 print(f"⚠️ Google Gemini model {g_model} failed: {e}")
 
     if not text:
-        raise ValueError("❌ فشل الحصول على رد من الذكاء الاصطناعي!")
+        raise ValueError("❌ فشل الحصول على رد من جميع موديلات الذكاء الاصطناعي المتاحة!")
 
     script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
     title = re.search(r'TITLE:\s*(.*?)(?=DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
@@ -197,7 +213,7 @@ async def text_to_speech_async(text, output_file):
 
 
 # ==========================================
-# 8. دالة تصميم النص مع تلوين الكلمات المفتاحيّة القوية
+# 8. دالة تصميم النص وتلوين الكلمات المفتاحيّة
 # ==========================================
 POWER_WORDS = {"TERRIFY", "SECRET", "SECRETS", "MIND", "NEVER", "ALWAYS", "DANGEROUS", "SHOCKING", "TRICK", "TRICKS", "SCIENCE", "MYSTERY", "HIDDEN", "REAL", "SUBSCRIBE"}
 
@@ -229,10 +245,8 @@ def create_text_chunk_image(text_chunk, width, height, idx):
         x = (width - w_len) // 2
         y = start_y + (i * 75)
         
-        # خلفية سوداء شفافة
         draw.rectangle([x - 15, y - 5, x + w_len + 15, y + 60], fill=(0, 0, 0, 210))
         
-        # تلوين الكلمات المفتاحية باللون الأحمر الفاقع، والباقي أصفر/أبيض
         clean_line_words = line.split()
         contains_power = any(w.strip(".,!?").upper() in POWER_WORDS for w in clean_line_words)
         
@@ -289,7 +303,7 @@ def create_thumbnail_cover(title_text, width, height):
 
 
 # ==========================================
-# 9. دالة تجميع وإنتاج الفيديو مع دمج المقاطع المتعددة
+# 9. دالة تجميع وإنتاج الفيديو
 # ==========================================
 def build_video(script, query, is_short=True):
     audio_path = "voice.mp3"
@@ -301,7 +315,6 @@ def build_video(script, query, is_short=True):
 
     target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
 
-    # معالجة وربط مقاطع الفيديو الثلاثة بالتتابع
     clip_dur = duration / len(bg_paths)
     processed_clips = []
     
@@ -315,7 +328,6 @@ def build_video(script, query, is_short=True):
 
     base_video = concatenate_videoclips(processed_clips)
 
-    # تقسيم النص إلى جمل قصيرة وتطبيق الألوان
     words = script.split()
     words_per_chunk = 6
     chunks = [" ".join(words[i:i+words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
@@ -327,12 +339,10 @@ def build_video(script, query, is_short=True):
         clip = ImageClip(img_p).set_start(idx * chunk_duration).set_duration(chunk_duration)
         overlay_clips.append(clip)
 
-    # شريط الاشتراك البصري
     sub_img_path = create_subscribe_overlay(target_w, target_h)
     sub_start_time = duration * 0.40
     sub_clip = ImageClip(sub_img_path).set_start(sub_start_time).set_duration(duration - sub_start_time)
 
-    # الغلاف البارز للـ Thumbnail
     cover_path = create_thumbnail_cover(script, target_w, target_h)
     cover_clip = ImageClip(cover_path).set_start(0).set_duration(0.3)
 
