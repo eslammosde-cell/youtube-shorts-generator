@@ -68,7 +68,13 @@ TAGS: Write 8 comma-separated tags.
 SEARCH_QUERY: 1 english word for video search (e.g. galaxy, technology, nature).
 THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
-    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    # قائمة بجميع النماذج المحتملة في Groq
+    models_to_try = [
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-3b-preview"
+    ]
     text = ""
     for model_name in models_to_try:
         try:
@@ -83,7 +89,7 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             print(f"⚠️ Groq model {model_name} failed: {e}")
 
     if not text:
-        raise ValueError("❌ فشل الاستجابة من Groq! تم إلغاء العملية لعدم رفع فيديو فارغ.")
+        raise ValueError("❌ فشل الاتصال بنماذج Groq! تأكد من صلاحية حسابك والمفاتيح.")
 
     try:
         script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
@@ -102,13 +108,12 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             elif line_str.startswith("THUMBNAIL_PROMPT:"):
                 thumb_prompt = line_str.replace("THUMBNAIL_PROMPT:", "").strip()
 
-        # التحقق من أن النتيجة كاملة ومستوفية للشروط
         if script and title and query:
             return script, title, desc, tags, query, thumb_prompt
         else:
-            raise ValueError("❌ الاستجابة من Groq ناقصة الشروط المطلوب توفرها.")
+            raise ValueError("❌ النص المستخرج من Groq غير مكتمل الشروط.")
     except Exception as e:
-        raise ValueError(f"❌ خطأ في معالجة نص Groq: {e}. تم إيقاف الرفع.")
+        raise ValueError(f"❌ خطأ معالجة النصوص: {e}")
 
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
@@ -136,9 +141,9 @@ def fetch_pexels_video(query, is_short=True):
                 print("✅ Downloaded HD Background Video from Pexels!")
                 return v_path
     except Exception as e:
-        raise ValueError(f"❌ فشل جلب فيديو من Pexels: {e}")
+        raise ValueError(f"❌ فشل جلب فيديو Pexels: {e}")
         
-    raise ValueError(f"❌ لم يتم العثور على أي فيديو يناسب الكلمة: '{query}' على Pexels!")
+    raise ValueError(f"❌ لم يتم العثور على فيديو مناسب للبحث: '{query}'")
 
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
@@ -178,7 +183,6 @@ def create_text_overlay(text, width, height):
     return "overlay.png"
 
 def build_video(script, query, is_short=True):
-    # جلب الفيديو أولاً، إذا فشل سيتوقف البرنامج فوراً ولن يكمل
     bg_video_path = fetch_pexels_video(query, is_short)
 
     audio_path = "voice.mp3"
@@ -250,7 +254,6 @@ if __name__ == "__main__":
     print(f"🚀 Starting Automated Content Engine (Type: {'Short' if is_short else 'Long Video'})...")
     trending_topic = get_realtime_trending_topic()
     
-    # سيتم تنفيذ كل خطوة بشرط نجاح السابقة
     script, title, desc, tags, query, thumb_prompt = generate_ai_content(trending_topic, is_short)
     video_path = build_video(script, query, is_short)
     
