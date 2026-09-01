@@ -138,7 +138,7 @@ def get_strictly_new_trending_topic():
     sys.exit(0)
 
 # ==========================================
-# 5. توليد النص بالذكاء الاصطناعي
+# 5. توليد النص بالذكاء الاصطناعي (نماذج حديثة + حماية كاملة)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
     prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
@@ -166,14 +166,22 @@ SEARCH_QUERY:
 """
     text = ""
 
+    # 1. قائمة نماذج Groq المحدثة والنشطة حالياً
     GROQ_MODELS = [
-        "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768",
-        "llama3-70b-8192"
+        "llama3-8b-8192",
+        "gemma2-9b-it"
     ]
 
     if client_groq:
+        # جلب النماذج المتاحة ديناميكياً من حسابك أولاً
+        try:
+            available_models = [m.id for m in client_groq.models.list().data if "guard" not in m.id.lower()]
+            # دمج النماذج المتاحة ديناميكياً مع القائمة الاحتياطية
+            GROQ_MODELS = available_models + [m for m in GROQ_MODELS if m not in available_models]
+        except Exception as e:
+            print(f"⚠️ Dynamic model fetch failed, using default list: {e}")
+
         for model_name in GROQ_MODELS:
             try:
                 response = client_groq.chat.completions.create(
@@ -189,8 +197,11 @@ SEARCH_QUERY:
                 print(f"⚠️ Groq {model_name} failed: {ex}")
                 continue
 
+    # 2. الانتقال التلقائي لـ Gemini في حال تعذر Groq
     if not text and client_gemini:
-        for g_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+        print("🔄 Switching to Gemini models fallback...")
+        GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        for g_model in GEMINI_MODELS:
             try:
                 response = client_gemini.models.generate_content(
                     model=g_model,
@@ -200,7 +211,8 @@ SEARCH_QUERY:
                     text = response.text
                     print(f"✅ Generated script via Gemini Model: {g_model}")
                     break
-            except Exception:
+            except Exception as e:
+                print(f"⚠️ Gemini {g_model} failed: {e}")
                 continue
 
     if not text:
@@ -223,7 +235,6 @@ SEARCH_QUERY:
         query_val = query_val.split()[0]
 
     return script_val, title_val, desc_val, tags_val, query_val
-
 
 # ==========================================
 # 6. تحميل مقاطع الفيديو من Pexels
