@@ -21,7 +21,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 from moviepy.editor import (
-    AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
+    AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip, concatenate_videoclips
 )
 
 # ==========================================
@@ -43,11 +43,9 @@ client_gemini = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 # 3. دوال مساعدة لإنشاء الفيديو
 # ==========================================
 def set_clip_duration(clip, duration):
-    """تحديد مدة عرض المقطع"""
     return clip.set_duration(duration)
 
 def set_clip_audio(clip, audio):
-    """دمج الصوت مع مقطع الفيديو"""
     return clip.set_audio(audio)
 
 
@@ -65,26 +63,28 @@ def get_realtime_trending_topic():
     topic = random.choice(trending_topics)
     print(f"🔥 Selected Trending Topic: {topic}")
     return topic
-# --- نهاية دالة اختيار الموضوع ---
 
 
 # ==========================================
-# 5. دالة توليد نص السكربت بواسطة الذكاء الاصطناعي
+# 5. دالة توليد نص السكربت (مثالي لمدّة 30-35 ثانية + CTA)
 # ==========================================
 def generate_ai_content(topic, is_short=True):
-    prompt = f"""You are a professional YouTube Shorts creator. Topic: '{topic}'.
-Write an engaging, high-retention script for a 35 to 50 seconds viral video.
+    prompt = f"""You are a professional YouTube Shorts creator specializing in viral high-retention content. Topic: '{topic}'.
+Write a highly captivating script optimized for a 30 to 35 seconds fast-paced video.
+
+CRITICAL INSTRUCTION FOR SUBSCRIBERS:
+End the script with a very strong 4-word call to action asking the viewer to subscribe right now.
 
 Provide the response in this EXACT structure:
 
 SCRIPT:
-Write 80 to 110 words of voiceover text. High hook, strong viral facts.
+Write 65 to 85 words of voiceover text ONLY. Fast-paced, high retention, powerful hook.
 
 TITLE:
 Write a viral title with emojis and 2 hashtags.
 
 DESCRIPTION:
-Write 3 full sentences describing the content with a strong call to action.
+Write 2-3 full sentences describing the content with a strong SUBSCRIBE call to action.
 
 TAGS:
 10 relevant keywords separated by commas.
@@ -94,7 +94,6 @@ SEARCH_QUERY:
 """
     text = ""
 
-    # تجربة Groq أولاً
     if client_groq:
         groq_models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
         for model_name in groq_models:
@@ -109,10 +108,9 @@ SEARCH_QUERY:
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # إذا فشل Groq يتم التحويل إلى Gemini
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
-        gemini_models = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+        gemini_models = ["gemini-2.5-flash", "gemini-2.0-flash"]
         for g_model in gemini_models:
             try:
                 response = client_gemini.models.generate_content(
@@ -128,7 +126,6 @@ SEARCH_QUERY:
     if not text:
         raise ValueError("❌ فشل الحصول على رد من الذكاء الاصطناعي!")
 
-    # استخراج النصوص بمرونة تامة تتجاهل رموز التنسيق
     script = re.search(r'SCRIPT:\s*(.*?)(?=TITLE:|DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
     title = re.search(r'TITLE:\s*(.*?)(?=DESCRIPTION:|TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
     desc = re.search(r'DESCRIPTION:\s*(.*?)(?=TAGS:|SEARCH_QUERY:|$)', text, re.DOTALL | re.IGNORECASE)
@@ -148,39 +145,47 @@ SEARCH_QUERY:
         raise ValueError(f"❌ تعذر تفكيك النص بشكل صحيح!\nالنص الكامل المولد:\n{text}")
 
     return script_val, title_val, desc_val, tags_val, query_val
-# --- نهاية دالة توليد السكربت ---
 
 
 # ==========================================
-# 6. دالة تحميل الفيديو الخلفي من Pexels
+# 6. دالة تحميل عدة مقاطع فيديو متنوعة للمشهد
 # ==========================================
-def fetch_pexels_video(query, is_short=True):
+def fetch_multiple_pexels_videos(query, total_duration, is_short=True):
     if not PEXELS_KEY:
         raise ValueError("❌ لم يتم إضافة PEXELS_API_KEY في GitHub Secrets!")
         
     headers = {"Authorization": PEXELS_KEY}
     orientation = "portrait" if is_short else "landscape"
-    url = f"https://api.pexels.com/videos/search?query={query}&per_page=10&orientation={orientation}"
+    url = f"https://api.pexels.com/videos/search?query={query}&per_page=15&orientation={orientation}"
     
     res = requests.get(url, headers=headers, timeout=10)
     if res.status_code == 200:
         videos = res.json().get("videos", [])
-        if videos:
-            selected_video = random.choice(videos)
-            video_files = selected_video.get("video_files", [])
+        if len(videos) >= 3:
+            random.shuffle(videos)
+            selected_videos = videos[:3]
+        elif videos:
+            selected_videos = videos
+        else:
+            raise ValueError(f"❌ تعذر العثور على مقاطع فيديو مناسبة لـ: '{query}'")
+
+        downloaded_paths = []
+        for idx, vid in enumerate(selected_videos):
+            video_files = vid.get("video_files", [])
             hd_file = next((f for f in video_files if f.get("quality") == "hd"), video_files[0])
             download_url = hd_file.get("link")
             
             v_res = requests.get(download_url, stream=True, timeout=15)
-            v_path = "bg_video.mp4"
+            v_path = f"bg_video_{idx}.mp4"
             with open(v_path, 'wb') as f:
                 for chunk in v_res.iter_content(chunk_size=1024*1024):
                     f.write(chunk)
-            print("✅ Downloaded HD Background Video from Pexels!")
-            return v_path
+            downloaded_paths.append(v_path)
+            
+        print(f"✅ Downloaded {len(downloaded_paths)} HD Video Clips from Pexels!")
+        return downloaded_paths
 
-    raise ValueError(f"❌ تعذر العثور على فيديو مناسب على Pexels للكلمة المفتاحية: '{query}'")
-# --- نهاية دالة تحميل الفيديو ---
+    raise ValueError(f"❌ تعذر الاتصال بـ Pexels!")
 
 
 # ==========================================
@@ -189,14 +194,79 @@ def fetch_pexels_video(query, is_short=True):
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_file)
-# --- نهاية دالة تحويل الصوت ---
 
 
 # ==========================================
-# 8. دالة كتابة النص + تصميم غلاف جذاب (Thumbnail Cover)
+# 8. دالة تصميم النص مع تلوين الكلمات المفتاحيّة القوية
 # ==========================================
+POWER_WORDS = {"TERRIFY", "SECRET", "SECRETS", "MIND", "NEVER", "ALWAYS", "DANGEROUS", "SHOCKING", "TRICK", "TRICKS", "SCIENCE", "MYSTERY", "HIDDEN", "REAL", "SUBSCRIBE"}
+
+def create_text_chunk_image(text_chunk, width, height, idx):
+    img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 52 if width < height else 42)
+    except:
+        font = ImageFont.load_default()
+
+    words = text_chunk.split()
+    lines, current = [], ""
+    limit = 12 if width < height else 22
+    for w in words:
+        if len(current + " " + w) < limit:
+            current += " " + w if current else w
+        else:
+            lines.append(current)
+            current = w
+    if current: lines.append(current)
+
+    total_h = len(lines) * 75
+    start_y = (height - total_h) // 2
+
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        w_len = bbox[2] - bbox[0]
+        x = (width - w_len) // 2
+        y = start_y + (i * 75)
+        
+        # خلفية سوداء شفافة
+        draw.rectangle([x - 15, y - 5, x + w_len + 15, y + 60], fill=(0, 0, 0, 210))
+        
+        # تلوين الكلمات المفتاحية باللون الأحمر الفاقع، والباقي أصفر/أبيض
+        clean_line_words = line.split()
+        contains_power = any(w.strip(".,!?").upper() in POWER_WORDS for w in clean_line_words)
+        
+        line_color = "#FF3333" if contains_power else ("#FFD700" if i % 2 == 0 else "#FFFFFF")
+        draw.text((x, y), line, fill=line_color, font=font)
+
+    img_path = f"chunk_{idx}.png"
+    img.save(img_path)
+    return img_path
+
+
+def create_subscribe_overlay(width, height):
+    img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40)
+    except:
+        font = ImageFont.load_default()
+
+    sub_text = "🔔 SUBSCRIBE FOR MORE!"
+    bbox = draw.textbbox((0, 0), sub_text, font=font)
+    w_len = bbox[2] - bbox[0]
+    x = (width - w_len) // 2
+    y = int(height * 0.82)
+
+    draw.rectangle([x - 25, y - 10, x + w_len + 25, y + 65], fill=(220, 20, 60, 235), outline=(255, 255, 255, 255), width=3)
+    draw.text((x, y), sub_text, fill="#FFFFFF", font=font)
+
+    sub_path = "subscribe_cta.png"
+    img.save(sub_path)
+    return sub_path
+
+
 def create_thumbnail_cover(title_text, width, height):
-    """إنشاء غلاف جذاب يظهر في اللقطة الأولى فقط"""
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     try:
@@ -210,7 +280,6 @@ def create_thumbnail_cover(title_text, width, height):
     x = (width - w_len) // 2
     y = height // 4
 
-    # مربع أصفر فاقع وجريء لجلب الانتباه تلقائياً
     draw.rectangle([x - 20, y - 10, x + w_len + 20, y + 70], fill=(255, 204, 0, 240))
     draw.text((x, y + 5), hook_text, fill="#000000", font=font)
 
@@ -219,80 +288,65 @@ def create_thumbnail_cover(title_text, width, height):
     return cover_path
 
 
-def create_text_overlay(text, width, height):
-    img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 40 if width < height else 34)
-    except:
-        font = ImageFont.load_default()
-
-    words = text.split()
-    lines, current = [], ""
-    limit = 16 if width < height else 30
-    for w in words:
-        if len(current + " " + w) < limit:
-            current += " " + w if current else w
-        else:
-            lines.append(current)
-            current = w
-    if current: lines.append(current)
-
-    total_h = len(lines) * 60
-    start_y = (height - total_h) // 2
-
-    for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font)
-        w_len = bbox[2] - bbox[0]
-        x = (width - w_len) // 2
-        y = start_y + (i * 60)
-        draw.rectangle([x - 12, y - 4, x + w_len + 12, y + 48], fill=(0, 0, 0, 190))
-        draw.text((x, y), line, fill="#FFD700" if i % 2 == 0 else "#FFFFFF", font=font)
-
-    img.save("overlay.png")
-    return "overlay.png"
-# --- نهاية دالة إضافة النص والصورة ---
-
-
 # ==========================================
-# 9. دالة تجميع وإنتاج الفيديو النهائي
+# 9. دالة تجميع وإنتاج الفيديو مع دمج المقاطع المتعددة
 # ==========================================
 def build_video(script, query, is_short=True):
-    bg_video_path = fetch_pexels_video(query, is_short)
-
     audio_path = "voice.mp3"
     asyncio.run(text_to_speech_async(script, audio_path))
     audio_clip = AudioFileClip(audio_path)
     duration = audio_clip.duration
 
+    bg_paths = fetch_multiple_pexels_videos(query, duration, is_short)
+
     target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
 
-    v_clip = VideoFileClip(bg_video_path).resize(height=target_h)
-    w, h = v_clip.size
-    if w > target_w:
-        v_clip = v_clip.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
+    # معالجة وربط مقاطع الفيديو الثلاثة بالتتابع
+    clip_dur = duration / len(bg_paths)
+    processed_clips = []
     
-    base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
+    for p in bg_paths:
+        vc = VideoFileClip(p).resize(height=target_h)
+        w, h = vc.size
+        if w > target_w:
+            vc = vc.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
+        vc = vc.loop(duration=clip_dur) if vc.duration < clip_dur else vc.subclip(0, clip_dur)
+        processed_clips.append(vc)
 
-    overlay_path = create_text_overlay(script, target_w, target_h)
-    overlay_clip = ImageClip(overlay_path)
-    overlay_clip = set_clip_duration(overlay_clip, duration)
+    base_video = concatenate_videoclips(processed_clips)
 
-    # إنشاء غلاف لافت يظهر في أول 0.3 ثانية لتلتقطه خوارزمية يوتيوب كـ Thumbnail
+    # تقسيم النص إلى جمل قصيرة وتطبيق الألوان
+    words = script.split()
+    words_per_chunk = 6
+    chunks = [" ".join(words[i:i+words_per_chunk]) for i in range(0, len(words), words_per_chunk)]
+    chunk_duration = duration / len(chunks)
+
+    overlay_clips = []
+    for idx, chunk in enumerate(chunks):
+        img_p = create_text_chunk_image(chunk, target_w, target_h, idx)
+        clip = ImageClip(img_p).set_start(idx * chunk_duration).set_duration(chunk_duration)
+        overlay_clips.append(clip)
+
+    # شريط الاشتراك البصري
+    sub_img_path = create_subscribe_overlay(target_w, target_h)
+    sub_start_time = duration * 0.40
+    sub_clip = ImageClip(sub_img_path).set_start(sub_start_time).set_duration(duration - sub_start_time)
+
+    # الغلاف البارز للـ Thumbnail
     cover_path = create_thumbnail_cover(script, target_w, target_h)
-    cover_clip = ImageClip(cover_path).set_duration(0.3)
+    cover_clip = ImageClip(cover_path).set_start(0).set_duration(0.3)
 
-    final_video = CompositeVideoClip([base_video, overlay_clip, cover_clip])
+    all_clips = [base_video] + overlay_clips + [sub_clip, cover_clip]
+    final_video = CompositeVideoClip(all_clips)
     final_video = set_clip_audio(final_video, audio_clip)
 
     out_file = "final_video.mp4"
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
-# --- نهاية دالة إنتاج الفيديو ---
 
 
 # ==========================================
-# 10. دالة رفع الفيديو مباشرة إلى يوتيوب
+# 10. دالة رفع الفيديو إلى يوتيوب
 # ==========================================
 def upload_to_youtube(video_path, title, desc, tags):
     token_url = "https://oauth2.googleapis.com/token"
@@ -316,7 +370,7 @@ def upload_to_youtube(video_path, title, desc, tags):
     body = {
         'snippet': {
             'title': title,
-            'description': f"{desc}\n\n#trending #viral #shorts #facts #knowledge",
+            'description': f"{desc}\n\n👉 SUBSCRIBE for more mind-blowing daily facts!\n#trending #viral #shorts #facts #knowledge",
             'tags': [t.strip() for t in tags.split(',')] if tags else [],
             'categoryId': '28'
         },
@@ -331,11 +385,10 @@ def upload_to_youtube(video_path, title, desc, tags):
     res = request.execute()
     video_id = res['id']
     print(f"🎉 Video Uploaded Successfully! Video ID: {video_id}")
-# --- نهاية دالة الرفع ---
 
 
 # ==========================================
-# 11. نقطة تشغيل السكربت الرئيسية (Main Engine)
+# 11. نقطة تشغيل السكربت الرئيسية
 # ==========================================
 if __name__ == "__main__":
     import sys
