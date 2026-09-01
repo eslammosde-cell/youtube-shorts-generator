@@ -1,9 +1,9 @@
 moviepy==1.0.3
+Pillow==9.5.0
 google-genai
 groq
 requests
 edge-tts
-pillow
 google-api-python-client
 google-auth-oauthlib
 google-auth-httplib2
