@@ -50,13 +50,11 @@ def set_clip_audio(clip, audio):
 
 
 # ==========================================
-# دالة جلب التريندات المباشرة من يوتيوب نفسه
+# 4. دالة جلب التريندات المباشرة من يوتيوب لعدم التكرار
 # ==========================================
 def get_realtime_trending_topic():
     try:
         print("🔍 Fetching live trending topics directly from YouTube...")
-        
-        # الاتصال بـ YouTube API باستخدم OAuth credentials الموجودة لديك
         token_url = "https://oauth2.googleapis.com/token"
         data = {
             'client_id': CLIENT_ID,
@@ -75,7 +73,6 @@ def get_realtime_trending_topic():
 
         youtube = build('youtube', 'v3', credentials=creds)
 
-        # طلب الأكثر شهرة وتداولاً في العالم (أو تحديد دولة مثل US)
         request = youtube.videos().list(
             part="snippet",
             chart="mostPopular",
@@ -84,7 +81,6 @@ def get_realtime_trending_topic():
         )
         res = request.execute()
 
-        # استخراج عناوين الفيديوهات الأكثر تداولاً
         trending_titles = [item['snippet']['title'] for item in res.get('items', [])]
         
         if trending_titles:
@@ -95,14 +91,15 @@ def get_realtime_trending_topic():
     except Exception as e:
         print(f"⚠️ Failed to fetch YouTube Trends ({e}), using Fallback topic...")
 
-    # خيار احترافي fallback في حال حدوث أي خطأ في الاتصال
     fallback_topics = [
         "Unexplained Space Mysteries That Terrify Scientists", 
         "Mind-Blowing Artificial Intelligence Facts", 
         "Psychological Secrets of Mind Control",
-        "Ancient Ruins Scientists Still Cannot Explain"
+        "Ancient Ruins Scientists Still Cannot Explain",
+        "Secrets of the Deep Ocean"
     ]
     return random.choice(fallback_topics)
+
 
 # ==========================================
 # 5. دالة توليد نص السكربت المضمونة
@@ -120,7 +117,7 @@ SCRIPT:
 Write 65 to 85 words of voiceover text ONLY. Fast-paced, high retention, powerful hook.
 
 TITLE:
-Write a viral title with emojis and 2 hashtags.
+Write a viral title with emojis.
 
 DESCRIPTION:
 Write 2-3 full sentences describing the content with a strong SUBSCRIBE call to action.
@@ -133,7 +130,6 @@ SEARCH_QUERY:
 """
     text = ""
 
-    # 1. قائمة الموديلات الشغالة والحالية في Groq
     if client_groq:
         groq_models = [
             "llama-3.3-70b-versatile",
@@ -151,7 +147,6 @@ SEARCH_QUERY:
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. قائمة الموديلات المضمونة في Google Gemini
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI Active Models...")
         gemini_models = [
@@ -171,14 +166,13 @@ SEARCH_QUERY:
             except Exception as e:
                 print(f"⚠️ Google Gemini model {g_model} failed: {e}")
 
-    # 3. الخيار الأخير (Offline Fallback) لضمان عدم توقف الـ Action نهائياً
     if not text:
         print("⚠️ All AI APIs failed or quota exceeded. Using High-Quality Fallback Template...")
         text = f"""SCRIPT:
 Did you know that space is hiding secrets that baffle top scientists? From mysterious cosmic signals to massive black holes consuming entire galaxies, the universe is full of terrifying wonders. Scientists still cannot explain what lies beyond the observable universe. Subscribe right now for more mind blowing facts!
 
 TITLE:
-Space Mysteries Scientists Cannot Explain! 😱 #shorts #space
+Space Mysteries Scientists Cannot Explain! 😱
 
 DESCRIPTION:
 Discover terrifying mysteries of the universe that keep scientists awake at night. Make sure to subscribe for daily mind-blowing facts!
@@ -401,7 +395,7 @@ def build_video(script, query, is_short=True):
 
 
 # ==========================================
-# 10. دالة رفع الفيديو إلى يوتيوب
+# 10. دالة رفع الفيديو إلى يوتيوب (مُعدلة لإصلاح العنوان)
 # ==========================================
 def upload_to_youtube(video_path, title, desc, tags):
     token_url = "https://oauth2.googleapis.com/token"
@@ -421,10 +415,13 @@ def upload_to_youtube(video_path, title, desc, tags):
     )
 
     youtube = build('youtube', 'v3', credentials=creds)
+
+    # إضافة الهاشتاجات بشكل مضمون وصحيح
     formatted_title = f"{title} #shorts #viral" if "#shorts" not in title.lower() else title
+
     body = {
         'snippet': {
-            'title': title,
+            'title': formatted_title,
             'description': f"{desc}\n\n👉 SUBSCRIBE for more mind-blowing daily facts!\n#trending #viral #shorts #facts #knowledge",
             'tags': [t.strip() for t in tags.split(',')] if tags else [],
             'categoryId': '28'
