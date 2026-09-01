@@ -1,8 +1,8 @@
+moviepy==1.0.3
 google-genai
 groq
 requests
 edge-tts
-moviepy
 pillow
 google-api-python-client
 google-auth-oauthlib
