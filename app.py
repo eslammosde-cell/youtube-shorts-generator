@@ -3,6 +3,7 @@ import requests
 import asyncio
 import random
 import time
+import re
 import edge_tts
 from groq import Groq
 from google import genai
@@ -60,15 +61,13 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
     text = ""
 
-    # 1. قائمة نماذج Groq الشاملة (سيبحث السكربت عن أول نموذج يعمل منها)
+    # 1. التجربة مع Groq
     if client_groq:
         groq_models = [
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
             "llama3-70b-8192",
-            "llama3-8b-8192",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it"
+            "llama3-8b-8192"
         ]
         for model_name in groq_models:
             try:
@@ -82,15 +81,13 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. قائمة نماذج Gemini (بما فيها الموديل المطلوب في رسالة الخطأ الأخيرة)
+    # 2. التجربة مع Gemini
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
         gemini_models = [
             "gemini-3.6-flash",
             "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro"
+            "gemini-2.0-flash"
         ]
         for g_model in gemini_models:
             try:
@@ -105,31 +102,36 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
                 print(f"⚠️ Google Gemini model {g_model} failed: {e}")
 
     if not text:
-        raise ValueError("❌ فشل الاتصال بـ Groq و Gemini! تحقق من المفاتيح وصلاحية الحسابات.")
+        raise ValueError("❌ فشل الاتصال بـ Groq و Gemini!")
 
-    try:
-        script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
-        for line in text.split("\n"):
-            line_str = line.strip()
-            if line_str.startswith("SCRIPT:"):
-                script = line_str.replace("SCRIPT:", "").strip()
-            elif line_str.startswith("TITLE:"):
-                title = line_str.replace("TITLE:", "").strip()
-            elif line_str.startswith("DESCRIPTION:"):
-                desc = line_str.replace("DESCRIPTION:", "").strip()
-            elif line_str.startswith("TAGS:"):
-                tags = line_str.replace("TAGS:", "").strip()
-            elif line_str.startswith("SEARCH_QUERY:"):
-                query = line_str.replace("SEARCH_QUERY:", "").strip()
-            elif line_str.startswith("THUMBNAIL_PROMPT:"):
-                thumb_prompt = line_str.replace("THUMBNAIL_PROMPT:", "").strip()
+    # تحسين استخراج النصوص ليتوافق مع أي تنسيق من الذكاء الاصطناعي
+    script, title, desc, tags, query, thumb_prompt = "", "", "", "", "", ""
+    
+    for line in text.split("\n"):
+        clean_line = re.sub(r'^\*+|\*+$', '', line.strip()).strip()
+        
+        if re.match(r'^(SCRIPT|Script):', clean_line, re.IGNORECASE):
+            script = re.sub(r'^(SCRIPT|Script):', '', clean_line, flags=re.IGNORECASE).strip()
+        elif re.match(r'^(TITLE|Title):', clean_line, re.IGNORECASE):
+            title = re.sub(r'^(TITLE|Title):', '', clean_line, flags=re.IGNORECASE).strip()
+        elif re.match(r'^(DESCRIPTION|Description):', clean_line, re.IGNORECASE):
+            desc = re.sub(r'^(DESCRIPTION|Description):', '', clean_line, flags=re.IGNORECASE).strip()
+        elif re.match(r'^(TAGS|Tags):', clean_line, re.IGNORECASE):
+            tags = re.sub(r'^(TAGS|Tags):', '', clean_line, flags=re.IGNORECASE).strip()
+        elif re.match(r'^(SEARCH_QUERY|Search_Query|Query):', clean_line, re.IGNORECASE):
+            query = re.sub(r'^(SEARCH_QUERY|Search_Query|Query):', '', clean_line, flags=re.IGNORECASE).strip()
+        elif re.match(r'^(THUMBNAIL_PROMPT|Thumbnail_Prompt):', clean_line, re.IGNORECASE):
+            thumb_prompt = re.sub(r'^(THUMBNAIL_PROMPT|Thumbnail_Prompt):', '', clean_line, flags=re.IGNORECASE).strip()
 
-        if script and title and query:
-            return script, title, desc, tags, query, thumb_prompt
-        else:
-            raise ValueError("❌ النص المستخرج من الذكاء الاصطناعي غير مكتمل الشروط.")
-    except Exception as e:
-        raise ValueError(f"❌ خطأ معالجة النصوص: {e}")
+    # قيم افتراضية في حال عدم اكتمال بعض الحقول
+    if not script:
+        script = f"Discover the unbelievable facts about {topic} today."
+    if not title:
+        title = f"Secrets of {topic} #viral #shorts"
+    if not query:
+        query = topic.split()[0]
+
+    return script, title, desc, tags, query, thumb_prompt
 
 def fetch_pexels_video(query, is_short=True):
     if not PEXELS_KEY:
@@ -157,9 +159,19 @@ def fetch_pexels_video(query, is_short=True):
                 print("✅ Downloaded HD Background Video from Pexels!")
                 return v_path
     except Exception as e:
-        raise ValueError(f"❌ فشل جلب فيديو Pexels: {e}")
+        print(f"⚠️ Pexels error ({e}), retrying with default query...")
         
-    raise ValueError(f"❌ لم يتم العثور على فيديو مناسب للبحث: '{query}'")
+    # محاولة ثانية بكلمة بحث عامة في حال فشلت الأولى
+    url_fallback = f"https://api.pexels.com/videos/search?query=nature&per_page=5&orientation={orientation}"
+    res = requests.get(url_fallback, headers=headers, timeout=10)
+    videos = res.json().get("videos", [])
+    download_url = videos[0]["video_files"][0]["link"]
+    v_res = requests.get(download_url, stream=True, timeout=15)
+    v_path = "bg_video.mp4"
+    with open(v_path, 'wb') as f:
+        for chunk in v_res.iter_content(chunk_size=1024*1024):
+            f.write(chunk)
+    return v_path
 
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
