@@ -2,9 +2,11 @@ import os
 import requests
 import asyncio
 import random
+import time
+from pytrends.request import TrendReq
 import edge_tts
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -19,36 +21,55 @@ except ImportError:
     from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
     from moviepy.audio.io.AudioFileClip import AudioFileClip
 
+# API Keys
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
+PEXELS_KEY = os.getenv("PEXELS_API_KEY", "")
 CLIENT_ID = os.getenv("CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET", "")
 REFRESH_TOKEN = os.getenv("YOUTUBE_REFRESH_TOKEN", "")
 
-# اختيار صوت حماسي واحترافي
+# الصوت والمحرك
 VOICE = "en-US-AndrewNeural"
-
 client = Groq(api_key=GROQ_KEY) if GROQ_KEY else None
 
-def generate_viral_content():
-    topics = [
-        "Mind Blowing Psychology Facts", 
-        "Dark Mysteries of Deep Space", 
-        "Billionaire Daily Discipline", 
-        "Unsolved Ancient Secrets"
-    ]
-    topic = random.choice(topics)
+# -------------------------------------------------------------
+# 1. جلب تريند اليوم المباشر من Google Trends
+# -------------------------------------------------------------
+def get_realtime_trending_topic():
+    try:
+        pytrend = TrendReq(hl='en-US', tz=360)
+        trending_df = pytrend.trending_searches(pn='united_states')
+        topic = trending_df.iloc[0][0]
+        print(f"🔥 Current Trending Topic: {topic}")
+        return topic
+    except Exception as e:
+        print(f"Failed to fetch trends, fallback to default: {e}")
+        fallback_topics = ["Artificial Intelligence Breakthroughs", "Space Exploration Secrets", "Mindset Shift for Success"]
+        return random.choice(fallback_topics)
+
+# -------------------------------------------------------------
+# 2. توليد المحتوى والسكريبت وSEO وPrompts من Groq
+# -------------------------------------------------------------
+def generate_ai_content(topic, is_short=True):
+    content_type = "YouTube Short (max 20 words script, high energy)" if is_short else "Full Video (detailed 60-word script)"
     
-    prompt = f"""You are a viral YouTube Shorts creator. Create content for '{topic}':
-1. SCRIPT: A ultra high-energy, 18-word viral hook script in English that captivates instantly.
-2. TITLE: A high-CTR SEO title with 2 viral hashtags.
-3. DESCRIPTION: A concise 2-sentence SEO description.
-4. TAGS: 8 comma-separated search tags.
+    prompt = f"""You are an elite viral content creator. The topic is currently trending: '{topic}'.
+Create content for a {content_type}:
+
+1. SCRIPT: Engaging voiceover script.
+2. TITLE: High CTR viral title (include 2 hashtags).
+3. DESCRIPTION: High-SEO 2-sentence description with key terms.
+4. TAGS: 8 comma-separated viral tags.
+5. SEARCH_QUERY: 1-2 english words to search background videos (e.g., space, technology, city).
+6. THUMBNAIL_PROMPT: A vivid descriptive prompt to generate a thumbnail visual.
 
 Format strictly as:
 SCRIPT: <script text>
 TITLE: <title text>
 DESCRIPTION: <description text>
 TAGS: <tags>
+SEARCH_QUERY: <search query>
+THUMBNAIL_PROMPT: <thumbnail prompt>
 """
     try:
         response = client.chat.completions.create(
@@ -59,115 +80,160 @@ TAGS: <tags>
         script = text.split("SCRIPT:")[1].split("TITLE:")[0].strip()
         title = text.split("TITLE:")[1].split("DESCRIPTION:")[0].strip()
         desc = text.split("DESCRIPTION:")[1].split("TAGS:")[0].strip()
-        tags = text.split("TAGS:")[1].strip()
-        return script, title, desc, tags
+        tags = text.split("TAGS:")[1].split("SEARCH_QUERY:")[0].strip()
+        query = text.split("SEARCH_QUERY:")[1].split("THUMBNAIL_PROMPT:")[0].strip()
+        thumb_prompt = text.split("THUMBNAIL_PROMPT:")[1].strip()
+        return script, title, desc, tags, query, thumb_prompt
     except Exception as e:
-        print(f"Groq Error: {e}")
+        print(f"Groq Generation Error: {e}")
         return (
-            "Stop scrolling right now! Your daily habits determine whether you win or lose in life.", 
-            "The Brutal Truth About Success! 🧠 #shorts #mindset", 
-            "How daily discipline completely changes your life.", 
-            "shorts, motivation, mindset, success, viral"
+            f"Did you know about {topic}? This changes everything we knew!",
+            f"The Truth About {topic}! 🚀 #viral #trending",
+            f"Discover the latest insights about {topic} in this quick breakdown.",
+            f"shorts, trending, {topic}",
+            "technology",
+            f"Cinematic futuristic background of {topic}, 8k resolution, highly detailed"
         )
 
-# جلب فيديو خلفية HD مجاني ومباشر
-def get_background_video():
-    video_urls = [
-        "https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-1610-large.mp4",
-        "https://assets.mixkit.co/videos/preview/mixkit-storm-clouds-in-the-sky-4210-large.mp4",
-        "https://assets.mixkit.co/videos/preview/mixkit-abstract-laser-lights-background-41555-large.mp4"
-    ]
-    url = random.choice(video_urls)
-    v_path = "bg_video.mp4"
+# -------------------------------------------------------------
+# 3. جلب فيديو خلفية من Pexels
+# -------------------------------------------------------------
+def fetch_pexels_video(query, is_short=True):
+    if not PEXELS_KEY:
+        return None
+    headers = {"Authorization": PEXELS_KEY}
+    orientation = "portrait" if is_short else "landscape"
+    url = f"https://api.pexels.com/videos/search?query={query}&per_page=5&orientation={orientation}"
+    
     try:
-        res = requests.get(url, stream=True, timeout=10)
+        res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
-            with open(v_path, 'wb') as f:
-                for chunk in res.iter_content(chunk_size=1024*1024):
-                    f.write(chunk)
-            return v_path
+            videos = res.json().get("videos", [])
+            if videos:
+                selected_video = random.choice(videos)
+                video_files = selected_video.get("video_files", [])
+                hd_file = next((f for f in video_files if f.get("quality") == "hd"), video_files[0])
+                download_url = hd_file.get("link")
+                
+                v_res = requests.get(download_url, stream=True, timeout=15)
+                v_path = "bg_video.mp4"
+                with open(v_path, 'wb') as f:
+                    for chunk in v_res.iter_content(chunk_size=1024*1024):
+                        f.write(chunk)
+                return v_path
     except Exception as e:
-        print(f"Error fetching video: {e}")
+        print(f"Pexels fetch error: {e}")
     return None
 
+# -------------------------------------------------------------
+# 4. إنشاء صورة مصغرة (AI Thumbnail Generation)
+# -------------------------------------------------------------
+def generate_ai_thumbnail(prompt_text, title):
+    print("🎨 Generating AI Thumbnail...")
+    try:
+        clean_prompt = requests.utils.quote(prompt_text)
+        url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1280&height=720&nologo=true"
+        img_data = requests.get(url, timeout=20).content
+        
+        thumb_path = "thumbnail.jpg"
+        with open(thumb_path, 'wb') as f:
+            f.write(img_data)
+            
+        # إضافة كتابة نصوص توضيحية فوق الصورة المصغرة
+        img = Image.open(thumb_path).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 55)
+        except:
+            font = ImageFont.load_default()
+            
+        # إضافة شريط داكن وقائي للنص
+        draw.rectangle([0, 550, 1280, 720], fill=(0, 0, 0, 180))
+        draw.text((50, 600), title[:40] + "...", fill="#FFD700", font=font)
+        
+        final_thumb = img.convert("RGB")
+        final_thumb.save(thumb_path)
+        return thumb_path
+    except Exception as e:
+        print(f"Thumbnail generation error: {e}")
+        return None
+
+# -------------------------------------------------------------
+# 5. الصوت والنصوص والنظام الصوتي
+# -------------------------------------------------------------
 async def text_to_speech_async(text, output_file):
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(output_file)
 
-def create_text_overlay(text, width=1080, height=1920):
+def create_text_overlay(text, width, height):
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 65)
-    except Exception:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 55 if width < height else 45)
+    except:
         font = ImageFont.load_default()
 
     words = text.split()
     lines, current = [], ""
+    limit = 12 if width < height else 22
     for w in words:
-        if len(current + " " + w) < 14:
+        if len(current + " " + w) < limit:
             current += " " + w if current else w
         else:
             lines.append(current)
             current = w
-    if current:
-        lines.append(current)
+    if current: lines.append(current)
 
-    total_h = len(lines) * 100
+    total_h = len(lines) * 80
     start_y = (height - total_h) // 2
 
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         w_len = bbox[2] - bbox[0]
         x = (width - w_len) // 2
-        y = start_y + (i * 100)
-        
-        # خلفية سوداء شفافة خلف كل سطر نص لسهولة القراءة
-        draw.rectangle([x - 20, y - 10, x + w_len + 20, y + 80], fill=(0, 0, 0, 160))
-        
-        # حد خارجي للنص (Stroke)
-        for dx in range(-3, 4):
-            for dy in range(-3, 4):
-                draw.text((x + dx, y + dy), line, fill="black", font=font)
-        
-        # تبديل الألوان بين الأصفر والأبيض لجذب العين
-        text_color = "#FFD700" if i % 2 == 0 else "#FFFFFF"
-        draw.text((x, y), line, fill=text_color, font=font)
+        y = start_y + (i * 80)
+        draw.rectangle([x - 15, y - 5, x + w_len + 15, y + 65], fill=(0, 0, 0, 170))
+        draw.text((x, y), line, fill="#FFD700" if i % 2 == 0 else "#FFFFFF", font=font)
 
     img.save("overlay.png")
     return "overlay.png"
 
-def build_short_video(script):
+# -------------------------------------------------------------
+# 6. بناء الفيديو المكتمل
+# -------------------------------------------------------------
+def build_video(script, query, is_short=True):
     audio_path = "voice.mp3"
     asyncio.run(text_to_speech_async(script, audio_path))
     audio_clip = AudioFileClip(audio_path)
     duration = audio_clip.duration
 
-    bg_video_path = get_background_video()
-    
-    if bg_video_path:
-        try:
-            v_clip = VideoFileClip(bg_video_path).resize(height=1920)
-            w, h = v_clip.size
-            if w > 1080:
-                crop_x = (w - 1080) // 2
-                v_clip = v_clip.crop(x1=crop_x, y1=0, width=1080, height=1920)
-            
-            base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
-        except Exception:
-            base_video = ColorClip(size=(1080, 1920), color=(15, 20, 30), duration=duration)
-    else:
-        base_video = ColorClip(size=(1080, 1920), color=(15, 20, 30), duration=duration)
+    target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
+    bg_video_path = fetch_pexels_video(query, is_short)
 
-    overlay_path = create_text_overlay(script)
+    if bg_video_path and os.path.exists(bg_video_path):
+        try:
+            v_clip = VideoFileClip(bg_video_path).resize(height=target_h)
+            w, h = v_clip.size
+            if w > target_w:
+                v_clip = v_clip.crop(x1=(w - target_w)//2, y1=0, width=target_w, height=target_h)
+            base_video = v_clip.loop(duration=duration) if v_clip.duration < duration else v_clip.subclip(0, duration)
+        except Exception as e:
+            base_video = ColorClip(size=(target_w, target_h), color=(15, 20, 30), duration=duration)
+    else:
+        base_video = ColorClip(size=(target_w, target_h), color=(15, 20, 30), duration=duration)
+
+    overlay_path = create_text_overlay(script, target_w, target_h)
     overlay_clip = ImageClip(overlay_path).set_duration(duration)
 
     final_video = CompositeVideoClip([base_video, overlay_clip]).set_audio(audio_clip)
-    out_file = "final_short.mp4"
+    out_file = "final_video.mp4"
     final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", preset="ultrafast", threads=4)
     return out_file
 
-def upload_to_youtube(video_path, title, desc, tags):
+# -------------------------------------------------------------
+# 7. الرفع على يوتيوب مع الصورة المصغرة SEO
+# -------------------------------------------------------------
+def upload_to_youtube(video_path, title, desc, tags, thumb_path=None):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         'client_id': CLIENT_ID,
@@ -176,10 +242,8 @@ def upload_to_youtube(video_path, title, desc, tags):
         'grant_type': 'refresh_token',
     }
     response = requests.post(token_url, data=data).json()
-    access_token = response.get('access_token')
-
     creds = Credentials(
-        token=access_token,
+        token=response.get('access_token'),
         refresh_token=REFRESH_TOKEN,
         token_uri=token_url,
         client_id=CLIENT_ID,
@@ -191,9 +255,9 @@ def upload_to_youtube(video_path, title, desc, tags):
     body = {
         'snippet': {
             'title': title,
-            'description': f"{desc}\n\n#shorts #viral #trending",
+            'description': f"{desc}\n\n#trending #viral",
             'tags': [t.strip() for t in tags.split(',')] if tags else [],
-            'categoryId': '22'
+            'categoryId': '28' # Science & Technology
         },
         'status': {
             'privacyStatus': 'public',
@@ -204,11 +268,28 @@ def upload_to_youtube(video_path, title, desc, tags):
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part=','.join(body.keys()), body=body, media_body=media)
     res = request.execute()
-    print(f"🎉 Uploaded High Quality Short! Video ID: {res['id']}")
+    video_id = res['id']
+    print(f"🎉 Video Uploaded Successfully! Video ID: {video_id}")
+
+    # رفع الصورة المصغرة إن وجدت
+    if thumb_path and os.path.exists(thumb_path):
+        try:
+            youtube.thumbnails().set(videoId=video_id, media_body=MediaFileUpload(thumb_path)).execute()
+            print("🖼️ Custom Thumbnail Uploaded Successfully!")
+        except Exception as e:
+            print(f"Thumbnail upload error: {e}")
 
 if __name__ == "__main__":
-    print("🚀 Generating High Quality Automated Short...")
-    script, title, desc, tags = generate_viral_content()
-    video_path = build_short_video(script)
-    upload_to_youtube(video_path, title, desc, tags)
-    print("✅ Finished Successfully!")
+    import sys
+    # تفعيل خيار رفع شورتس أو فيديو عادي بناء على التوجيه
+    is_short = True if len(sys.argv) < 2 or sys.argv[1] == "short" else False
+    
+    print(f"🚀 Starting Automated Content Engine (Type: {'Short' if is_short else 'Long Video'})...")
+    trending_topic = get_realtime_trending_topic()
+    script, title, desc, tags, query, thumb_prompt = generate_ai_content(trending_topic, is_short)
+    
+    video_path = build_video(script, query, is_short)
+    thumb_path = generate_ai_thumbnail(thumb_prompt, title) if not is_short else None
+    
+    upload_to_youtube(video_path, title, desc, tags, thumb_path)
+    print("✅ Process Completed Successfully!")
