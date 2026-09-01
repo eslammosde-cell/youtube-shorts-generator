@@ -11,7 +11,6 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# MoviePy imports compatible with v1.0.3
 from moviepy.editor import (
     AudioFileClip, CompositeVideoClip, ImageClip, ColorClip, VideoFileClip
 )
@@ -61,12 +60,11 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
 """
     text = ""
 
-    # 1. محاولة استخدام Groq
+    # 1. استخدام نماذج Groq الشغالة حالياً
     if client_groq:
         models_to_try = [
-            "llama3-8b-8192",
-            "llama3-70b-8192",
-            "mixtral-8x7b-32768"
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
         ]
         for model_name in models_to_try:
             try:
@@ -80,10 +78,10 @@ THUMBNAIL_PROMPT: Visual prompt for thumbnail.
             except Exception as e:
                 print(f"⚠️ Groq model {model_name} failed: {e}")
 
-    # 2. محاولة استخدام Gemini كخيار احتياطي
+    # 2. التراجع لـ Gemini باستخدام أسماء النماذج الرسمية في google-genai
     if not text and client_gemini:
         print("🔄 Switching to Google Gemini AI...")
-        gemini_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+        gemini_models = ["gemini-2.0-flash", "gemini-2.5-flash"]
         for g_model in gemini_models:
             try:
                 response = client_gemini.models.generate_content(
