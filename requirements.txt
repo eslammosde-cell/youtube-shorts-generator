@@ -1,9 +1,9 @@
-edge-tts
+google-generativeai
 groq
-pillow
 requests
+edge-tts
 moviepy
+pillow
 google-api-python-client
-google-auth-httplib2
 google-auth-oauthlib
-pytrends
+google-auth-httplib2
